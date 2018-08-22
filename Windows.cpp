@@ -30,15 +30,18 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	if(!RegisterClass(&wndclass))
 	{
-		MessageBox(NULL,TEXT("how old of a computer are you using???? this program requires windows NT. Go bug me i guess to make the program compatible with your collectable at Copperbotte@yahoo.com"),
+		MessageBox(NULL,TEXT("how old of a computer are you using???? this program requires windows NT. Go bug me to make the program compatible with your collectable at Copperbotte@yahoo.com"),
 			szWindowClass,MB_ICONERROR);
-		return 0;
+		return FALSE;
 	}
 
-	RECT windrect = {0, 0, WINWIDTH, WINHEIGHT};
-	AdjustWindowRect(&windrect,WS_OVERLAPPEDWINDOW, FALSE);
-	hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-		windrect.right - windrect.left, windrect.bottom - windrect.top, NULL, NULL, hInstance, NULL);
+	RECT wndrect = {0, 0, WINWIDTH, WINHEIGHT};
+	RECT deskrect;
+	GetWindowRect(GetDesktopWindow(),&deskrect);
+	AdjustWindowRect(&wndrect,WS_OVERLAPPEDWINDOW, FALSE);
+	hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+		(deskrect.right - WINWIDTH)/2 + wndrect.left, (deskrect.bottom - WINHEIGHT)/2 + wndrect.top,
+		wndrect.right - wndrect.left, wndrect.bottom - wndrect.top, NULL, NULL, hInstance, NULL);
 
 	if (!hWnd)
 		return FALSE;
