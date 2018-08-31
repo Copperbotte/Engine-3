@@ -7,12 +7,23 @@ static unsigned int WINHEIGHT = 720;
 LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
 static TCHAR szWindowClass[] = TEXT("Engine3");
 static TCHAR szTitle[] = TEXT("VIDEOGAMES");
+IDXGISwapChain *swapchain;
+ID3D11Device *d3ddev;
+ID3D11DeviceContext *devcon;
+ID3D11RenderTargetView *backbuffer;
+
+ID3D10Blob *layoutblob;
+ID3D11InputLayout *vertlayout;
+ID3D11Buffer *vbuffer, *ibuffer;
 
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
 				   PSTR sxCmdLine,
 				   int nCmdShow)
 {
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// Window Initialization ////////////////////////
+	////////////////////////////////////////////////////////////////////////////
 	HWND hWnd;
 	MSG msg;
 	WNDCLASS wndclass;
@@ -46,11 +57,116 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	if (!hWnd)
 		return FALSE;
 
+	////////////////////////////////////////////////////////////////////////////
+	////////////////////////// DirectX 11 Initialization ///////////////////////
+	////////////////////////////////////////////////////////////////////////////
+
+	DXGI_SWAP_CHAIN_DESC scd;
+	ZeroMemory(&scd,sizeof(DXGI_SWAP_CHAIN_DESC));
+	scd.BufferCount = 1;
+	scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	scd.BufferDesc.Width = WINWIDTH;
+	scd.BufferDesc.Height = WINHEIGHT;
+	scd.BufferDesc.RefreshRate.Numerator = 120;
+	scd.BufferDesc.RefreshRate.Denominator = 1; // cool settings
+	scd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+	scd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+	scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	scd.OutputWindow = hWnd;
+	scd.SampleDesc.Count = 1;
+	scd.SampleDesc.Quality = 0;
+	scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+	scd.Windowed = TRUE;
+	scd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH; // fullscreen enabled?
+
+	D3D11CreateDeviceAndSwapChain(NULL,D3D_DRIVER_TYPE_HARDWARE,
+		NULL,NULL,NULL,NULL,
+		D3D11_SDK_VERSION,&scd,&swapchain,&d3ddev,NULL,&devcon);
+
+	ID3D11Texture2D *backbuffertex;
+	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
+	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
+	devcon->OMSetRenderTargets(1, &backbuffer, nullptr);
+	backbuffertex->Release();
+
+	D3D11_VIEWPORT viewport;
+	ZeroMemory(&viewport,sizeof(D3D11_VIEWPORT));
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = WINWIDTH;//windrect
+	viewport.Height = WINHEIGHT;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
+	devcon->RSSetViewports(1, &viewport);
+
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// Scene Initialization /////////////////////////
+	////////////////////////////////////////////////////////////////////////////
+	//Scene must be initialized before these next steps, to load in the model.
+
+
+
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////// Vertex Buffer initialization /////////////////////
+	////////////////////////////////////////////////////////////////////////////
+
+	D3D11_INPUT_ELEMENT_DESC layout[] = 
+	{
+		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0}
+	};
+
+	float vertices[9] = 
+	{
+		0.0, 0.0, 0.0,
+		1.0, 0.0, 0.0,
+		1.0, 0.0, 0.0,
+	};
+
+	int indices[3] = 
+	{
+		0,1,2
+	};
+
+	unsigned int vSize = sizeof(vertices);
+	unsigned int iSize = sizeof(indices);
+
+	unsigned int stride = vSize / 3;
+	unsigned int offset = 0;
+
+	D3D11_BUFFER_DESC vertexbufferdesc, indexbufferdesc;
+	ZeroMemory(&vertexbufferdesc,sizeof(D3D11_BUFFER_DESC));
+	ZeroMemory(&indexbufferdesc,sizeof(D3D11_BUFFER_DESC));
+	vertexbufferdesc.Usage = D3D11_USAGE_DEFAULT;
+	vertexbufferdesc.ByteWidth = vSize;
+	vertexbufferdesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vertexbufferdesc.CPUAccessFlags = 0;
+	vertexbufferdesc.MiscFlags = 0;
+	indexbufferdesc.Usage = D3D11_USAGE_DEFAULT;
+	indexbufferdesc.ByteWidth = iSize;
+	indexbufferdesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	indexbufferdesc.CPUAccessFlags = 0;
+	indexbufferdesc.MiscFlags = 0;
+
+
+	D3D11_SUBRESOURCE_DATA vbufferdata, ibufferdata;
+	ZeroMemory(&vbufferdata,sizeof(D3D11_SUBRESOURCE_DATA));
+	ZeroMemory(&ibufferdata,sizeof(D3D11_SUBRESOURCE_DATA));
+	vbufferdata.pSysMem = vertices;
+	ibufferdata.pSysMem = indices;
+	d3ddev->CreateBuffer(&vertexbufferdesc, &vbufferdata, &vbuffer);
+	d3ddev->CreateBuffer(&indexbufferdesc, &ibufferdata, &ibuffer);
+	devcon->IASetVertexBuffers(0, 1, &vbuffer, &stride, &offset);
+	devcon->IASetIndexBuffer(ibuffer, DXGI_FORMAT_R32_UINT,0);
+
+	d3ddev->CreateInputLayout(layout, 1, layoutblob->GetBufferPointer(), layoutblob->GetBufferSize(), &vertlayout);
+	devcon->IASetInputLayout(vertlayout);
+
+	////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////// Main Loop ///////////////////////////////
+	////////////////////////////////////////////////////////////////////////////
+
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
-
-	//Directx initialization
-
 	unsigned long InitTime = GetTickCount();
 	unsigned long CurTime = InitTime;
 	unsigned long PrevTime = InitTime;
@@ -71,6 +187,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		while(CurTime - PrevTime < framelimit)
 			CurTime = GetTickCount();		
 	}
+
+	SAFE_RELEASE(layoutblob);
+	SAFE_RELEASE(vertlayout);
+	SAFE_RELEASE(vbuffer);
+	SAFE_RELEASE(ibuffer);
+
+	SAFE_RELEASE(backbuffer);
+	SAFE_RELEASE(swapchain);
+	SAFE_RELEASE(devcon);
+	SAFE_RELEASE(d3ddev);
 
 	return msg.wParam;
 }
@@ -98,4 +224,98 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 	}
 	return 0;
 
+}
+
+void *LoadShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, LPCWSTR Errorname,
+	HRESULT (*CreateShader)(const void*, SIZE_T, ID3D11ClassLinkage*, void**),bool UseConstFormat)
+{
+	ID3D10Blob *errorditto, *shaderblob;
+	void* errorptr;
+	wchar_t errorshit[10000]; // yolo characters
+	HRESULT errorres = D3DX11CompileFromFile(File, 0, 0, Function, Format, 0, 0, 0, &shaderblob, &errorditto, 0);
+	if(errorres != S_OK)
+	{
+		errorptr = errorditto->GetBufferPointer();
+		for(unsigned int i=0;i<10000;i++)
+		{
+			errorshit[i] = ((char*)errorptr)[i];
+			if(errorshit[i]=='\0')
+				break;
+		}
+		MessageBox(NULL, errorshit, Errorname, MB_ICONERROR | MB_OK);
+	}
+	SAFE_RELEASE(errorditto);
+
+	void *ShaderOutput;
+	CreateShader(shaderblob->GetBufferPointer(),shaderblob->GetBufferSize(), NULL, &ShaderOutput);
+	if(UseConstFormat)
+	{
+		if(layoutblob != nullptr)
+			SAFE_RELEASE(layoutblob);
+		layoutblob = shaderblob;
+	}
+	return ShaderOutput;
+}
+
+// To solve this problem, make a new function with a void pointer to pass through
+// I don't like this solution, but I can't find a better way to generalize this
+// I'm also avoiding macros
+HRESULT CreateVertexShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out)
+{
+	return d3ddev->CreateVertexShader(BfrPtr, BfrSize, Linkage, (ID3D11VertexShader**)Out);
+}
+ID3D11VertexShader *LoadVertexShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat)
+{
+	return (ID3D11VertexShader*)LoadShader(
+		File, Function, Format, L"Vertex Shader Compile Error",
+		CreateVertexShaderGeneric,
+		UseConstFormat);
+}
+
+HRESULT CreateHullShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out)
+{
+	return d3ddev->CreateHullShader(BfrPtr, BfrSize, Linkage, (ID3D11HullShader**)Out);
+}
+ID3D11HullShader *LoadHullShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat)
+{
+	return (ID3D11HullShader*)LoadShader(
+		File, Function, Format, L"Hull Shader Compile Error",
+		CreateHullShaderGeneric,
+		UseConstFormat);
+}
+
+HRESULT CreateDomainShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out)
+{
+	return d3ddev->CreateDomainShader(BfrPtr, BfrSize, Linkage, (ID3D11DomainShader**)Out);
+}
+ID3D11DomainShader *LoadDomainShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat)
+{
+	return (ID3D11DomainShader*)LoadShader(
+		File, Function, Format, L"Domain Shader Compile Error",
+		CreateDomainShaderGeneric,
+		UseConstFormat);
+}
+
+HRESULT CreateGeometryShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out)
+{
+	return d3ddev->CreateGeometryShader(BfrPtr, BfrSize, Linkage, (ID3D11GeometryShader**)Out);
+}
+ID3D11GeometryShader *LoadGeometryShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat)
+{
+	return (ID3D11GeometryShader*)LoadShader(
+		File, Function, Format, L"Geometry Shader Compile Error",
+		CreateGeometryShaderGeneric,
+		UseConstFormat);
+}
+
+HRESULT CreatePixelShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out)
+{
+	return d3ddev->CreatePixelShader(BfrPtr, BfrSize, Linkage, (ID3D11PixelShader**)Out);
+}
+ID3D11PixelShader *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat)
+{
+	return (ID3D11PixelShader*)LoadShader(
+		File, Function, Format, L"Pixel Shader Compile Error",
+		CreatePixelShaderGeneric,
+		UseConstFormat);
 }
