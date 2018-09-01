@@ -7,6 +7,13 @@ static unsigned int WINHEIGHT = 720;
 LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
 static TCHAR szWindowClass[] = TEXT("Engine3");
 static TCHAR szTitle[] = TEXT("VIDEOGAMES");
+
+ID3D11VertexShader	   *LoadVertexShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11HullShader	     *LoadHullShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11DomainShader	   *LoadDomainShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11GeometryShader *LoadGeometryShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11PixelShader	    *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+
 IDXGISwapChain *swapchain;
 ID3D11Device *d3ddev;
 ID3D11DeviceContext *devcon;
@@ -15,6 +22,9 @@ ID3D11RenderTargetView *backbuffer;
 ID3D10Blob *layoutblob;
 ID3D11InputLayout *vertlayout;
 ID3D11Buffer *vbuffer, *ibuffer;
+
+ID3D11VertexShader *vs;
+ID3D11PixelShader *ps;
 
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
@@ -104,7 +114,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	////////////////////////////////////////////////////////////////////////////
 	//Scene must be initialized before these next steps, to load in the model.
 
+	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
+	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
+	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
@@ -181,12 +194,19 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			break;
 
 		PrevTime = CurTime;
-		
+		float backgroundcolor[4] = {0.0f,0.0f,0.0f,0.0f};
+		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
+		devcon->DrawIndexed(3,0,0);
+		swapchain->Present(0, 0);
+
 		const unsigned long framelimit = 1000/1000;//1ms
 
 		while(CurTime - PrevTime < framelimit)
 			CurTime = GetTickCount();		
 	}
+
+	SAFE_RELEASE(vs);
+	SAFE_RELEASE(ps);
 
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);
