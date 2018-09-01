@@ -23,6 +23,9 @@ ID3D10Blob *layoutblob;
 ID3D11InputLayout *vertlayout;
 ID3D11Buffer *vbuffer, *ibuffer;
 
+ID3D11RasterizerState *Rasta;
+ID3D11BlendState *Blenda;
+
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
 
@@ -103,8 +106,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	ZeroMemory(&viewport,sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
 	viewport.TopLeftY = 0;
-	viewport.Width = WINWIDTH;//windrect
-	viewport.Height = WINHEIGHT;
+	viewport.Width = (float)WINWIDTH;//windrect
+	viewport.Height = (float)WINHEIGHT;
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 	devcon->RSSetViewports(1, &viewport);
@@ -116,6 +119,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
 	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
+
+	devcon->VSSetShader(vs, 0, 0);
+	devcon->PSSetShader(ps, 0, 0);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -132,12 +138,14 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	{
 		0.0, 0.0, 0.0,
 		1.0, 0.0, 0.0,
-		1.0, 0.0, 0.0,
+		1.0, 1.0, 0.0,
+		//0.0, 1.0, 0.0,
 	};
 
 	int indices[3] = 
 	{
-		0,1,2
+		0,1,2,
+
 	};
 
 	unsigned int vSize = sizeof(vertices);
@@ -174,6 +182,31 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateInputLayout(layout, 1, layoutblob->GetBufferPointer(), layoutblob->GetBufferSize(), &vertlayout);
 	devcon->IASetInputLayout(vertlayout);
 
+	D3D11_BLEND_DESC blendesc;
+	ZeroMemory(&blendesc,sizeof(D3D11_BLEND_DESC));
+	D3D11_RENDER_TARGET_BLEND_DESC rtbd;
+	ZeroMemory(&rtbd,sizeof(D3D11_RENDER_TARGET_BLEND_DESC));
+	rtbd.BlendEnable = true;
+	rtbd.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+	rtbd.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // what a weird equation
+	rtbd.BlendOp = D3D11_BLEND_OP_ADD;
+	rtbd.SrcBlendAlpha = D3D11_BLEND_ONE;
+	rtbd.DestBlendAlpha = D3D11_BLEND_ZERO;
+	rtbd.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	rtbd.RenderTargetWriteMask = D3D10_COLOR_WRITE_ENABLE_ALL;
+	blendesc.AlphaToCoverageEnable = false;
+	blendesc.RenderTarget[0] = rtbd;
+	d3ddev->CreateBlendState(&blendesc, &Blenda);
+	devcon->OMSetBlendState(Blenda, NULL, 0xffffffff); // what the shit
+
+	D3D11_RASTERIZER_DESC rastadec;
+	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
+	rastadec.FillMode = D3D11_FILL_SOLID;//D3D11_FILL_WIREFRAME;//
+	rastadec.CullMode = D3D11_CULL_NONE;//D3D11_CULL_FRONT;//
+	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
+	devcon->RSSetState(Rasta);
+
+
 	////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////// Main Loop ///////////////////////////////
 	////////////////////////////////////////////////////////////////////////////
@@ -208,10 +241,15 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);
 
+	//SAFE_RELEASE(RenderRaster);
+	//SAFE_RELEASE(DisplayRaster);
+
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);
 	SAFE_RELEASE(vbuffer);
 	SAFE_RELEASE(ibuffer);
+	SAFE_RELEASE(Rasta);
+	SAFE_RELEASE(Blenda);
 
 	SAFE_RELEASE(backbuffer);
 	SAFE_RELEASE(swapchain);
