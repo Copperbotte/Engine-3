@@ -28,6 +28,13 @@ ID3D11BlendState *Blenda;
 
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
+ID3D11Buffer *Buffer;
+
+struct
+{ // 16 BYTE intervals
+	XMMATRIX World;
+	XMMATRIX ViewProj;
+} ConstantBuffer;
 
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
@@ -123,6 +130,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	devcon->VSSetShader(vs, 0, 0);
 	devcon->PSSetShader(ps, 0, 0);
 
+	D3D11_BUFFER_DESC cbbd;
+	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
+
+	cbbd.Usage = D3D11_USAGE_DEFAULT;
+	cbbd.ByteWidth = sizeof(ConstantBuffer);
+	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	cbbd.CPUAccessFlags = 0;
+	cbbd.MiscFlags = 0;
+	d3ddev->CreateBuffer(&cbbd,NULL,&Buffer);
+
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	////////////////////////////////////////////////////////////////////////////
@@ -134,24 +151,40 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0}
 	};
 
-	float vertices[9] = 
+	float vertices[] = 
 	{
 		0.0, 0.0, 0.0,
 		1.0, 0.0, 0.0,
+		0.0, 1.0, 0.0,
 		1.0, 1.0, 0.0,
-		//0.0, 1.0, 0.0,
+		0.0, 0.0, 1.0,
+		1.0, 0.0, 1.0,
+		0.0, 1.0, 1.0,
+		1.0, 1.0, 1.0,
 	};
 
-	int indices[3] = 
+	int indices[] = 
 	{
-		0,1,2,
-
+		0,1,3,
+		0,3,2,
+		0,5,1,
+		0,4,5,
+		0,2,6,
+		0,6,4,
+		7,6,2,
+		7,2,3,
+		7,3,1,
+		7,1,5,
+		7,5,4,
+		7,4,6,
 	};
 
 	unsigned int vSize = sizeof(vertices);
 	unsigned int iSize = sizeof(indices);
+	unsigned int vCount = vSize / (3*sizeof(float)); // vCount is calculated during model import 
+	unsigned int iCount = iSize / (3*sizeof(int));
 
-	unsigned int stride = vSize / 3;
+	unsigned int stride = vSize / vCount;
 	unsigned int offset = 0;
 
 	D3D11_BUFFER_DESC vertexbufferdesc, indexbufferdesc;
@@ -201,8 +234,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	D3D11_RASTERIZER_DESC rastadec;
 	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
-	rastadec.FillMode = D3D11_FILL_SOLID;//D3D11_FILL_WIREFRAME;//
-	rastadec.CullMode = D3D11_CULL_NONE;//D3D11_CULL_FRONT;//
+	rastadec.FillMode = D3D11_FILL_WIREFRAME;//D3D11_FILL_SOLID;//
+	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//D3D11_CULL_FRONT;//
 	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
 	devcon->RSSetState(Rasta);
 
@@ -229,7 +262,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		PrevTime = CurTime;
 		float backgroundcolor[4] = {0.0f,0.0f,0.0f,0.0f};
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
-		devcon->DrawIndexed(3,0,0);
+
+		XMMATRIX World = XMMatrixRotationY(((float)CurTime) / 1000.0f);
+		XMMATRIX ViewProj = XMMatrixTranslation(0.0f,0.0f,-10.0f)*XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
+
+		ConstantBuffer.World = World;
+		ConstantBuffer.ViewProj = ViewProj;
+		devcon->UpdateSubresource(Buffer, 0, NULL, &ConstantBuffer, 0, 0);
+		
+		devcon->VSSetConstantBuffers(0, 1, &Buffer);
+		devcon->DrawIndexed(iCount*3,0,0);
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 1000/1000;//1ms
@@ -237,6 +279,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		while(CurTime - PrevTime < framelimit)
 			CurTime = GetTickCount();		
 	}
+
+	SAFE_RELEASE(Buffer);
 
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);
