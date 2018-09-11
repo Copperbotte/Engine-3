@@ -36,6 +36,8 @@ struct
 	XMMATRIX ViewProj;
 } ConstantBuffer;
 
+Key_Inputs Key;
+
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
 				   PSTR sxCmdLine,
@@ -260,14 +262,20 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			break;
 
 		PrevTime = CurTime;
-		float backgroundcolor[4] = {0.0f,0.0f,0.0f,0.0f};
+		float backgroundcolor[4] = {0.0f,0.0f,0.0f,1.0f};
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 
+		Key.Update();
+
+		float x = 0.0f;
+		if(Key(VK_SPACE)) x = 1.0f;
+
 		XMMATRIX World = XMMatrixRotationY(((float)CurTime) / 1000.0f);
-		XMMATRIX ViewProj = XMMatrixTranslation(0.0f,0.0f,-10.0f)*XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
+		XMMATRIX View = XMMatrixTranslation(x,0.0f,-10.0f);
+		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
 
 		ConstantBuffer.World = World;
-		ConstantBuffer.ViewProj = ViewProj;
+		ConstantBuffer.ViewProj = View*Proj;
 		devcon->UpdateSubresource(Buffer, 0, NULL, &ConstantBuffer, 0, 0);
 		
 		devcon->VSSetConstantBuffers(0, 1, &Buffer);
