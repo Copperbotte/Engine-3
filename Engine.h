@@ -45,4 +45,3 @@ double Wrap(double Input, double Min, double Max);
 bool Clamp(int*, int Min, int Max);
 bool Clamp(float*, float Min, float Max);
 bool Clamp(double*, double Min, double Max);
-

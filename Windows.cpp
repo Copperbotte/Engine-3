@@ -56,7 +56,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	wndclass.cbWndExtra = 0;
 	wndclass.hInstance = hInstance;
 	wndclass.hIcon = LoadIcon(NULL,IDI_APPLICATION);
-	wndclass.hCursor = LoadCursor(NULL,IDC_ARROW);
+	wndclass.hCursor = LoadCursor(NULL,IDC_SIZEALL);//IDC_UPARROW);//:^) IDC_ARROW);
 	wndclass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
 	wndclass.lpszMenuName = NULL;
 	wndclass.lpszClassName = szWindowClass;
@@ -83,6 +83,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	////////////////////////// DirectX 11 Initialization ///////////////////////
 	////////////////////////////////////////////////////////////////////////////
 
+	// Swap chain are backbuffers that are swapped between rendering and displaying modes.
 	DXGI_SWAP_CHAIN_DESC scd;
 	ZeroMemory(&scd,sizeof(DXGI_SWAP_CHAIN_DESC));
 	scd.BufferCount = 1;
@@ -105,6 +106,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		NULL,NULL,NULL,NULL,
 		D3D11_SDK_VERSION,&scd,&swapchain,&d3ddev,NULL,&devcon);
 
+	// Temporary texture to set the render target to the backbuffer
 	ID3D11Texture2D *backbuffertex;
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
@@ -134,13 +136,36 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	D3D11_BUFFER_DESC cbbd;
 	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
-
 	cbbd.Usage = D3D11_USAGE_DEFAULT;
 	cbbd.ByteWidth = sizeof(ConstantBuffer);
 	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	cbbd.CPUAccessFlags = 0;
 	cbbd.MiscFlags = 0;
 	d3ddev->CreateBuffer(&cbbd,NULL,&Buffer);
+
+	D3D11_BLEND_DESC blendesc;
+	ZeroMemory(&blendesc,sizeof(D3D11_BLEND_DESC));
+	D3D11_RENDER_TARGET_BLEND_DESC rtbd;
+	ZeroMemory(&rtbd,sizeof(D3D11_RENDER_TARGET_BLEND_DESC));
+	rtbd.BlendEnable = true;
+	rtbd.SrcBlend = D3D11_BLEND_SRC_ALPHA;
+	rtbd.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // what a weird equation
+	rtbd.BlendOp = D3D11_BLEND_OP_ADD;
+	rtbd.SrcBlendAlpha = D3D11_BLEND_ONE;
+	rtbd.DestBlendAlpha = D3D11_BLEND_ZERO;
+	rtbd.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	rtbd.RenderTargetWriteMask = D3D10_COLOR_WRITE_ENABLE_ALL;
+	blendesc.AlphaToCoverageEnable = false;
+	blendesc.RenderTarget[0] = rtbd;
+	d3ddev->CreateBlendState(&blendesc, &Blenda);
+	devcon->OMSetBlendState(Blenda, NULL, 0xffffffff); // what the shit
+
+	D3D11_RASTERIZER_DESC rastadec;
+	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
+	rastadec.FillMode = D3D11_FILL_SOLID;//D3D11_FILL_WIREFRAME;//
+	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//
+	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
+	devcon->RSSetState(Rasta);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -150,9 +175,13 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	D3D11_INPUT_ELEMENT_DESC layout[] = 
 	{
-		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0}
+		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"NORMAL",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 12,	D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
 
+	unsigned int layoutnum = sizeof(layout)/sizeof(D3D11_INPUT_ELEMENT_DESC);
+	
+	/*
 	float vertices[] = 
 	{
 		0.0, 0.0, 0.0,
@@ -167,23 +196,61 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	int indices[] = 
 	{
-		0,1,3,
-		0,3,2,
-		0,5,1,
-		0,4,5,
-		0,2,6,
-		0,6,4,
-		7,6,2,
-		7,2,3,
-		7,3,1,
-		7,1,5,
-		7,5,4,
-		7,4,6,
+		0,1,3, 0,3,2, 
+		0,2,6, 0,6,4, 
+		0,4,5, 0,5,1, 
+		7,6,2, 7,2,3, 
+		7,3,1, 7,1,5, 
+		7,5,4, 7,4,6, 
+	};
+	*/
+	
+	float vertices[] = 
+	{
+		0.0, 0.0, 0.0, 0.0, 0.0, -1.0, // Indices 0 & 1
+		1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 
+		1.0, 1.0, 0.0, 0.0, 0.0, -1.0, 
+		0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 
+
+		0.0, 0.0, 0.0, 0.0, -1.0, 0.0, // Indices 2 & 3
+		0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 
+		1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 
+		1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 
+
+		0.0, 0.0, 0.0, -1.0, 0.0, 0.0, // Indices 4 & 5
+		0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 
+		0.0, 1.0, 1.0, -1.0, 0.0, 0.0, 
+		0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 
+
+		1.0, 1.0, 1.0, 0.0, 1.0, 0.0, // Indices 6 & 7
+		0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 
+		0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 
+		1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 
+
+		1.0, 1.0, 1.0, 1.0, 0.0, 0.0, // Indices 8 & 9
+		1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 
+		1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 
+		1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 
+
+		1.0, 1.0, 1.0, 0.0, 0.0, 1.0, // Indices 10 & 11
+		1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 
+		0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 
+		0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 
+	};
+	
+	int indices[] = 
+	{
+		0,1,2, 0,2,3, 
+		4,5,6, 4,6,7, 
+		8,9,10, 8,10,11, 
+		12,13,14, 12,14,15, 
+		16,17,18, 16,18,19, 
+		20,21,22, 20,22,23, 
 	};
 
 	unsigned int vSize = sizeof(vertices);
 	unsigned int iSize = sizeof(indices);
-	unsigned int vCount = vSize / (3*sizeof(float)); // vCount is calculated during model import 
+	unsigned int vCount = vSize / (6*sizeof(float)); // vCount is calculated during model import 
 	unsigned int iCount = iSize / (3*sizeof(int));
 
 	unsigned int stride = vSize / vCount;
@@ -214,33 +281,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	devcon->IASetVertexBuffers(0, 1, &vbuffer, &stride, &offset);
 	devcon->IASetIndexBuffer(ibuffer, DXGI_FORMAT_R32_UINT,0);
 
-	d3ddev->CreateInputLayout(layout, 1, layoutblob->GetBufferPointer(), layoutblob->GetBufferSize(), &vertlayout);
+	d3ddev->CreateInputLayout(layout, layoutnum, layoutblob->GetBufferPointer(), layoutblob->GetBufferSize(), &vertlayout);
 	devcon->IASetInputLayout(vertlayout);
-
-	D3D11_BLEND_DESC blendesc;
-	ZeroMemory(&blendesc,sizeof(D3D11_BLEND_DESC));
-	D3D11_RENDER_TARGET_BLEND_DESC rtbd;
-	ZeroMemory(&rtbd,sizeof(D3D11_RENDER_TARGET_BLEND_DESC));
-	rtbd.BlendEnable = true;
-	rtbd.SrcBlend = D3D11_BLEND_SRC_ALPHA;
-	rtbd.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // what a weird equation
-	rtbd.BlendOp = D3D11_BLEND_OP_ADD;
-	rtbd.SrcBlendAlpha = D3D11_BLEND_ONE;
-	rtbd.DestBlendAlpha = D3D11_BLEND_ZERO;
-	rtbd.BlendOpAlpha = D3D11_BLEND_OP_ADD;
-	rtbd.RenderTargetWriteMask = D3D10_COLOR_WRITE_ENABLE_ALL;
-	blendesc.AlphaToCoverageEnable = false;
-	blendesc.RenderTarget[0] = rtbd;
-	d3ddev->CreateBlendState(&blendesc, &Blenda);
-	devcon->OMSetBlendState(Blenda, NULL, 0xffffffff); // what the shit
-
-	D3D11_RASTERIZER_DESC rastadec;
-	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
-	rastadec.FillMode = D3D11_FILL_WIREFRAME;//D3D11_FILL_SOLID;//
-	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//D3D11_CULL_FRONT;//
-	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
-	devcon->RSSetState(Rasta);
-
 
 	////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////// Main Loop ///////////////////////////////
@@ -270,7 +312,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		float x = 0.0f;
 		if(Key(VK_SPACE)) x = 1.0f;
 
-		XMMATRIX World = XMMatrixRotationY(((float)CurTime) / 1000.0f);
+		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(((float)CurTime) / 1000.0f);
 		XMMATRIX View = XMMatrixTranslation(x,0.0f,-10.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
 
