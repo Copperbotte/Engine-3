@@ -36,6 +36,13 @@ public:
 	void Update();
 };
 
+struct MODELID
+{
+	unsigned int Index_StartPos,Vertex_StartPos;
+	unsigned int Index_Length,Vertex_Length;
+	unsigned int VertexBufferOffset; // Offset, in bytes to the first vertex
+};
+
 //utility
 unsigned long xorshf96(void);
 double xorshfdbl(void);

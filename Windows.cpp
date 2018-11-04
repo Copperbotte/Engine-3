@@ -322,6 +322,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		
 		devcon->VSSetConstantBuffers(0, 1, &Buffer);
 		devcon->DrawIndexed(iCount*3,0,0);
+
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 1000/1000;//1ms
