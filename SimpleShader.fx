@@ -66,16 +66,18 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 float4 PS(PIn In) : SV_TARGET
 {
 	material Mat;
-	Mat.Albedo = srgb2photon(float3(1.0,0.5,0.0)); // Orange color //float3(1.0,1.0,1.0); // No transform needed for pure white or black on any channel
+	Mat.Albedo = float3(1.0,1.0,1.0); // No transform needed for pure white or black on any channel
 	Mat.Reflectivity = 0.1;
 	Mat.Power = 100;
 
+	float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
+	
 	float3 View = normalize(In.vPos.xyz - In.wPos.xyz);
 	float3 lite = LightPos - In.wPos.xyz;
 	float bright = 1.0 / dot(lite, lite);
 	
-	float3 Out = Light(normalize(lite), In.Norm, View, Mat)*bright;
-	Out += Mat.Albedo * 0.2; // Ambient
+	float3 Out = Light(normalize(lite), In.Norm, View, Mat)*bright*orange;
+	Out += (1.0-orange) * 0.2; // Ambient
 	
 	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 }

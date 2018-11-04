@@ -311,7 +311,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float backgroundcolor[4] = {0.0f,0.0f,0.0f,1.0f};
+		float backgroundcolor[4] = {0.0f,0.5f,1.0f,1.0f};
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 
 		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0);
