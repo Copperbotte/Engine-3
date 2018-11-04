@@ -34,6 +34,9 @@ struct
 { // 16 BYTE intervals
 	XMMATRIX World;
 	XMMATRIX ViewProj;
+	XMMATRIX Screen2World;
+	XMFLOAT4 LightColor;
+	XMFLOAT3 LightPos;
 } ConstantBuffer;
 
 Key_Inputs Key;
@@ -303,32 +306,35 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		if(msg.message == WM_QUIT)
 			break;
 
-		PrevTime = CurTime;
+		Key.Update();
+
+		CurTime = GetTickCount();
+		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
+
 		float backgroundcolor[4] = {0.0f,0.0f,0.0f,1.0f};
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 
-		Key.Update();
-
-		float x = 0.0f;
-		if(Key(VK_SPACE)) x = 1.0f;
-
-		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(((float)CurTime) / 1000.0f);
-		XMMATRIX View = XMMatrixTranslation(x,0.0f,-10.0f);
+		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0);
+		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
 
 		ConstantBuffer.World = World;
 		ConstantBuffer.ViewProj = View*Proj;
+		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
+		ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
+		ConstantBuffer.LightPos = XMFLOAT3(2.0*sin(-Time),0,2.0*cos(-Time));
 		devcon->UpdateSubresource(Buffer, 0, NULL, &ConstantBuffer, 0, 0);
 		
 		devcon->VSSetConstantBuffers(0, 1, &Buffer);
+		devcon->PSSetConstantBuffers(0, 1, &Buffer);
 		devcon->DrawIndexed(iCount*3,0,0);
 
 		swapchain->Present(0, 0);
 
-		const unsigned long framelimit = 1000/1000;//1ms
+		const unsigned long framelimit = 8/1000;//1ms
 
 		while(CurTime - PrevTime < framelimit)
-			CurTime = GetTickCount();		
+			PrevTime = CurTime;	
 	}
 
 	SAFE_RELEASE(Buffer);
