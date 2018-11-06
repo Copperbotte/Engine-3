@@ -30,12 +30,16 @@ struct VIn
 	float3 Pos : POSITION;
 	float3 Tex : TEXCOORD0;
 	float3 Norm : NORMAL0;
+	float3 Tan : TANGENT0;
+	float3 Bin : BINORMAL0;
 };
 
 struct PIn
 {
 	float4 Pos : SV_POSITION;
 	float3 Norm : NORMAL0;
+	float3 Tan : TANGENT0;
+	float3 Bin : BINORMAL0;
 	float2 Tex : TEXCOORD0;
 	float4 wPos : TEXCOORD1;
 	float3 sPos : TEXCOORD2;
@@ -51,6 +55,8 @@ PIn VS(VIn In)
 	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
 	Out.Pos = mul(ViewProj,Out.wPos);
 	Out.Norm = mul(World, float4(In.Norm,0.0)).xyz; // 0.0 disables translations into worldspace
+	Out.Tan = mul(World, float4(In.Tan,0.0)).xyz; // 3 dots instead of building a matrix is faster
+	Out.Bin = mul(World, float4(In.Bin,0.0)).xyz;
 	Out.sPos = Out.Pos.xyz / Out.Pos.w; // duplicate screen pos for view vector
 	Out.vPos = mul(Screen2World, float4(Out.sPos.xy,0.0,1.0)).xyz;
 	
@@ -70,7 +76,7 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 	const float PI = 3.141592;
 	const float E = 2.718282;
 	
-	float Diffuse = dot(NormalVec,LightVec);//max(0.0f,
+	float Diffuse = dot(NormalVec,LightVec);
 	if(Diffuse < 0)	return float3(0,0,0);
 	
 	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
@@ -88,16 +94,25 @@ float4 PS(PIn In) : SV_TARGET
 	Mat.Reflectivity = SampleTexture(2,In.Tex);
 	Mat.Power = SampleTexture(3,In.Tex);
 
+	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
+
+	//return float4((In.Tan+1.0) / 2.0, 1.0) * float4(photon2srgb(Mat.Albedo),1.0);
+	
 	float3 View = normalize(In.vPos.xyz - In.wPos.xyz);
 	float3 lite = LightPos - In.wPos.xyz;
 	float bright = 1.0 / dot(lite, lite);
 
 	float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	
-	float3 Out = Light(normalize(lite), In.Norm, View, Mat)*bright*orange;
+	float3x3 Tangentspace = float3x3(In.Tan, In.Bin, In.Norm);
+	
+	lite = mul(Tangentspace, normalize(lite));
+	View = mul(Tangentspace, View);
+	
+	float3 Out = Light(lite, Normal, View, Mat)*bright*orange;
 	float3 Ambient = (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity;
 	
-	Out += Ambient * srgb2photon(float3(0.0,0.5,1.0)) * 0.9;
+	Out += Ambient * srgb2photon(float3(0.0,0.5,1.0));// * 0.9;
 	
 	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 }

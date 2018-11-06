@@ -1,0 +1,29 @@
+Albedo
+src "photosculpt-mud-diffuse.jpg"
+range 0 1
+
+Normal
+src "photosculpt-mud-normal.jpg"
+range -1 1
+
+Reflectivity
+src "photosculpt-mud-specular.jpg"
+range 0 1 
+
+Specular
+src "photosculpt-mud-displace.jpg"
+range 10 1000
+
+Transparency
+src "Transparency.png"
+range 1 1
+
+Emission
+src "photosculpt-mud-displace.jpg"
+range 0 0
+
+COMMENT "Cool Lava Emission: 0.5 0, 0 0.1, 0 0, inverted bounds to invert the texture"
+
+Height
+src "photosculpt-mud-displace.jpg"
+range 0 0

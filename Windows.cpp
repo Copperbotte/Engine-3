@@ -156,7 +156,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
-	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");
+	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -257,7 +257,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	{
 		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0},
 		{"TEXCOORD",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 12,	D3D11_INPUT_PER_VERTEX_DATA, 0}, // uvw for 3d texture support
-		{"NORMAL",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 24,	D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"NORMAL",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 24,	D3D11_INPUT_PER_VERTEX_DATA, 0}, // Normalspace matrix, in Modelspace.
+		{"TANGENT",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 36,	D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"BINORMAL",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 48,	D3D11_INPUT_PER_VERTEX_DATA, 0}, // Tangent an Binormal follow UV coords.
 	};
 
 	unsigned int layoutnum = sizeof(layout)/sizeof(D3D11_INPUT_ELEMENT_DESC);
@@ -287,36 +289,42 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	*/
 	
 	float vertices[] = 
-	{
-		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0, -1.0, // Indices 0 & 1
-		1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, -1.0, 
-		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0, -1.0, 
-		0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, -1.0, 
+	{	//Position      UVW             Normal          Tangent(U)      Binormal(V)
+		// Indices 0 & 1
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
+		1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
+		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
+		0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
 
-		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, -1.0, 0.0, // Indices 2 & 3
-		0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, -1.0, 0.0, 
-		1.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0, -1.0, 0.0, 
-		1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, -1.0, 0.0, 
+		// Indices 2 & 3
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0,-1.0, 0.0,  0.0, 0.0, 1.0, -1.0, 0.0, 0.0,  
+		0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  0.0, 0.0, 1.0, -1.0, 0.0, 0.0,    
+		1.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0,-1.0, 0.0,  0.0, 0.0, 1.0, -1.0, 0.0, 0.0,  
+		1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0,-1.0, 0.0,  0.0, 0.0, 1.0, -1.0, 0.0, 0.0,  
 
-		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  -1.0, 0.0, 0.0, // Indices 4 & 5
-		0.0, 1.0, 0.0,  1.0, 0.0, 0.0,  -1.0, 0.0, 0.0, 
-		0.0, 1.0, 1.0,  1.0, 1.0, 0.0,  -1.0, 0.0, 0.0, 
-		0.0, 0.0, 1.0,  0.0, 1.0, 0.0,  -1.0, 0.0, 0.0, 
+		// Indices 4 & 5
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0, -1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0,-1.0,  
+		0.0, 1.0, 0.0,  1.0, 0.0, 0.0, -1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0,-1.0,  
+		0.0, 1.0, 1.0,  1.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0,-1.0,  
+		0.0, 0.0, 1.0,  0.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0,-1.0,  
 
-		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 1.0, 0.0, // Indices 6 & 7
-		0.0, 1.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
-		0.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0, 
-		1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 1.0, 0.0, 
+		// Indices 6 & 7
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  
+		0.0, 1.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 0.0, 1.0,    
+		0.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  
+		1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 1.0, 0.0, -1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  
 
-		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  1.0, 0.0, 0.0, // Indices 8 & 9
-		1.0, 1.0, 0.0,  1.0, 0.0, 0.0,  1.0, 0.0, 0.0, 
-		1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  1.0, 0.0, 0.0, 
-		1.0, 0.0, 1.0,  0.0, 1.0, 0.0,  1.0, 0.0, 0.0, 
+		// Indices 8 & 9
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  0.0, 1.0, 0.0,  
+		1.0, 1.0, 0.0,  1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  0.0, 1.0, 0.0,  
+		1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  0.0, 1.0, 0.0,  
+		1.0, 0.0, 1.0,  0.0, 1.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  0.0, 1.0, 0.0,  
 
-		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0, // Indices 10 & 11
-		1.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 
-		0.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0, 
-		0.0, 1.0, 1.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0, 
+		// Indices 10 & 11
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  0.0,-1.0, 0.0,  1.0, 0.0, 0.0,  
+		1.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  0.0,-1.0, 0.0,  1.0, 0.0, 0.0,  
+		0.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0,  0.0,-1.0, 0.0,  1.0, 0.0, 0.0,  
+		0.0, 1.0, 1.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  0.0,-1.0, 0.0,  1.0, 0.0, 0.0,  
 	};
 	
 	int indices[] = 
@@ -331,7 +339,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	unsigned int vSize = sizeof(vertices);
 	unsigned int iSize = sizeof(indices);
-	unsigned int vCount = vSize / (9*sizeof(float)); // vCount is calculated during model import 
+	unsigned int vCount = vSize / (15*sizeof(float)); // vCount is calculated during model import 
 	unsigned int iCount = iSize / (3*sizeof(int));
 
 	unsigned int stride = vSize / vCount;
@@ -385,8 +393,13 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			break;
 
 		Key.Update();
-
-		CurTime = GetTickCount();
+		if(Key(VK_SPACE))
+		{
+			PrevTime = CurTime;
+			CurTime = PrevTime;
+		}
+		else
+			CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
 		float backgroundcolor[4] = {0.0f,0.5f,1.0f,1.0f};
@@ -403,7 +416,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		ConstantBuffer.ViewProj = View*Proj;
 		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
 		ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
-		ConstantBuffer.LightPos = XMFLOAT3(2.0f*sin(-Time),0,2.0f*cos(-Time));
+		float theta = Time;//*4.0/3.0;
+		ConstantBuffer.LightPos = XMFLOAT3(2.0f*sin(-theta),0.0,2.0f*cos(-theta));
 		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
 		
 		devcon->VSSetConstantBuffers(0, 1, &cbuffer);
