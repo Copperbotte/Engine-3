@@ -1,4 +1,5 @@
 
+//#include "_Constbuffer.fx"
 #include "Srgb2Photon.fx"
 
 cbuffer cbPerObject : register(b0) // fancy schmancy
@@ -6,13 +7,28 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4x4 World;
 	float4x4 ViewProj;
 	float4x4 Screen2World;
+	float4 TextureRanges[14];
 	float4 LightColor;
 	float3 LightPos;
 };
 
+Texture2D surface[7] : register(t0);
+SamplerState Sampler : register(s0);
+
+float3 SampleTexture(uint Tex, float2 UV)
+{
+	float3 Out = surface[Tex].Sample(Sampler, UV).rgb;
+	if(Tex == 0 || Tex == 5)
+		Out = srgb2photon(Out);
+	//Lerp
+	return (TextureRanges[Tex+7]-TextureRanges[Tex])*Out + TextureRanges[Tex];
+	//return lerp(TextureRanges[Tex+7],TextureRanges[Tex],Out); // This lerp doesn't appear to work
+}
+
 struct VIn
 {
 	float3 Pos : POSITION;
+	float3 Tex : TEXCOORD0;
 	float3 Norm : NORMAL0;
 };
 
@@ -20,7 +36,7 @@ struct PIn
 {
 	float4 Pos : SV_POSITION;
 	float3 Norm : NORMAL0;
-	//float2 tex : TEXCOORD0; // Reserved for future texture coodinates
+	float2 Tex : TEXCOORD0;
 	float4 wPos : TEXCOORD1;
 	float3 sPos : TEXCOORD2;
 	float3 vPos : TEXCOORD3;
@@ -29,6 +45,8 @@ struct PIn
 PIn VS(VIn In)
 {
 	PIn Out;
+	
+	Out.Tex = In.Tex.xy;
 	
 	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
 	Out.Pos = mul(ViewProj,Out.wPos);
@@ -66,18 +84,20 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 float4 PS(PIn In) : SV_TARGET
 {
 	material Mat;
-	Mat.Albedo = float3(1.0,1.0,1.0); // No transform needed for pure white or black on any channel
-	Mat.Reflectivity = 0.1;
-	Mat.Power = 100;
+	Mat.Albedo = SampleTexture(0,In.Tex);
+	Mat.Reflectivity = SampleTexture(2,In.Tex);
+	Mat.Power = SampleTexture(3,In.Tex);
 
-	float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
-	
 	float3 View = normalize(In.vPos.xyz - In.wPos.xyz);
 	float3 lite = LightPos - In.wPos.xyz;
 	float bright = 1.0 / dot(lite, lite);
+
+	float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	
 	float3 Out = Light(normalize(lite), In.Norm, View, Mat)*bright*orange;
-	Out += (1.0-orange) * 0.2; // Ambient
+	float3 Ambient = (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity;
+	
+	Out += Ambient * srgb2photon(float3(0.0,0.5,1.0)) * 0.9;
 	
 	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 }

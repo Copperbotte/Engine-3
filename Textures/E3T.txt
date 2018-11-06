@@ -1,0 +1,58 @@
+E3T file is a material definition file similar to valve's VMT file.
+The file is stored in plaintext.
+The file is seperated into texture attributes: Albedo, Normal, Reflectivity, Specular, Fresnel term, Transparency, Emission and Height.
+Each attribute is optional, when one is missing it will use the default texture's attributes.
+Each attribute contains a source directory, a range per dimension, comments, and an end tag.
+
+If the range has only one entry, it is applied to each of the three dimensions of the field.
+Data outside the range is clamped to the range, data inside the range is linearly interpolated.
+
+The source directory is surrounded with quotation marks.
+
+Attributes can be duplicated, it will overwrite the previous data entry. Read from top to bottom.
+
+Certain rendering proporties have priority over other proporties, listed from highest priority to lowest:
+1. Emission
+2. Transparency
+3. Reflectivity
+4. Diffuse Reflection(albedo)
+5. Absorbtion(1-albedo)
+Normal and Height are not light rendering textures and are not on this list.
+
+
+Example:
+
+COMMENT "Reflection textures"
+Albedo
+src "Albedo.png"
+range 0 1 0 1 0 1 0 1
+
+Normal
+src "Normal.png"
+range -1 1 -1 1 -1 1 -1 1
+
+Reflectivity
+src "Reflectivity.png"
+range 0 1
+
+Specular
+src "Specular.png"
+range 0 1
+
+COMMENT "Transmission textures"
+
+Transparency
+src "Clear.png"
+range 0 1
+
+COMMENT "Emmission textures"
+
+Emission
+src "Specular.png"
+range 0 800
+
+COMMENT "Geometry textures"
+
+Height
+src "Height.png"
+range 0 1

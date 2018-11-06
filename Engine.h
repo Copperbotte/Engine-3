@@ -5,6 +5,11 @@
 #include <D3DX11.h>
 #include <xnamath.h>
 
+//Texture loading
+#include <fstream>
+#include <string>
+#include <sstream>
+
 #pragma comment (lib, "d3d11.lib")
 #pragma comment (lib, "d3dx11.lib")
 //#pragma comment (lib, "d3dx10.lib")
@@ -42,6 +47,42 @@ struct MODELID
 	unsigned int Index_Length,Vertex_Length;
 	unsigned int VertexBufferOffset; // Offset, in bytes to the first vertex
 };
+
+enum TextureID
+{
+	TEX_Albedo = 0,
+	TEX_Normal,
+	TEX_Reflectivity,
+	TEX_Specular,
+	TEX_Transparency,
+	TEX_Emission,
+	TEX_Height,
+
+	TEX_MAX_VALUE
+};
+
+struct TextureLocationData
+{
+	XMFLOAT4 Low[TEX_MAX_VALUE];
+	XMFLOAT4 High[TEX_MAX_VALUE];
+	std::wstring Locations[TEX_MAX_VALUE];
+};
+
+struct TextureData
+{
+	XMFLOAT4 Low[TEX_MAX_VALUE];
+	XMFLOAT4 High[TEX_MAX_VALUE];
+	ID3D11ShaderResourceView *Textures[TEX_MAX_VALUE];
+};
+
+//engine premade functions
+ID3D11ShaderResourceView *LoadTexture(LPCWSTR File);
+ID3D11ShaderResourceView *LoadTexture(LPCWSTR File, HRESULT *Err);
+ID3D11SamplerState *CreateSampler(D3D11_SAMPLER_DESC *texdesc);
+
+TextureLocationData LoadTextureLocations(LPCWSTR Descriptor);
+TextureData LoadTextureSet(TextureLocationData Locs);
+TextureData LoadTextureSet(LPCWSTR Descriptor);
 
 //utility
 unsigned long xorshf96(void);

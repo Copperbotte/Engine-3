@@ -18,6 +18,8 @@ IDXGISwapChain *swapchain;
 ID3D11Device *d3ddev;
 ID3D11DeviceContext *devcon;
 ID3D11RenderTargetView *backbuffer;
+ID3D11DepthStencilView *Zbuffer;
+ID3D11Texture2D *Zbuffertex;
 
 ID3D10Blob *layoutblob;
 ID3D11InputLayout *vertlayout;
@@ -28,13 +30,19 @@ ID3D11BlendState *Blenda;
 
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
-ID3D11Buffer *Buffer;
+ID3D11Buffer *cbuffer;
+
+ID3D11PixelShader *Lightshader;
+
+ID3D11SamplerState *TextureSampler;
+TextureData Mat;
 
 struct
 { // 16 BYTE intervals
 	XMMATRIX World;
 	XMMATRIX ViewProj;
 	XMMATRIX Screen2World;
+	XMFLOAT4 TextureRanges[14];
 	XMFLOAT4 LightColor;
 	XMFLOAT3 LightPos;
 } ConstantBuffer;
@@ -134,8 +142,36 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
 	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
+	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
+
 	devcon->VSSetShader(vs, 0, 0);
 	devcon->PSSetShader(ps, 0, 0);
+
+	D3D11_SAMPLER_DESC texdesk;
+	ZeroMemory(&texdesk,sizeof(D3D11_SAMPLER_DESC));
+	texdesk.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;//D3D11_FILTER_MIN_MAG_MIP_POINT;//
+	texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	texdesk.ComparisonFunc = D3D11_COMPARISON_NEVER;
+	texdesk.MinLOD = 0;
+	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
+	TextureSampler = CreateSampler(&texdesk);
+	
+	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");
+
+	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
+	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
+
+	devcon->PSSetShaderResources(0, 7, Mat.Textures);
+	devcon->GSSetShaderResources(0, 7, Mat.Textures);
+	devcon->VSSetShaderResources(0, 1, &Mat.Textures[TEX_Height]);
+
+	devcon->PSSetSamplers(0, 1, &TextureSampler);
+	devcon->VSSetSamplers(0, 1, &TextureSampler);
+
+
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// More initialization //////////////////////////
+	////////////////////////////////////////////////////////////////////////////
 
 	D3D11_BUFFER_DESC cbbd;
 	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
@@ -144,7 +180,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	cbbd.CPUAccessFlags = 0;
 	cbbd.MiscFlags = 0;
-	d3ddev->CreateBuffer(&cbbd,NULL,&Buffer);
+	d3ddev->CreateBuffer(&cbbd,NULL,&cbuffer);
 
 	D3D11_BLEND_DESC blendesc;
 	ZeroMemory(&blendesc,sizeof(D3D11_BLEND_DESC));
@@ -169,7 +205,48 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//
 	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
 	devcon->RSSetState(Rasta);
+	/*
+	// Depth buffer
+	D3D11_TEXTURE2D_DESC RTDesc, dsd;
+	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
+	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
+	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
+	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
+	RTDesc.Width = WIDTH;
+	RTDesc.Height = HEIGHT;
+	RTDesc.MipLevels = 1;
+	RTDesc.ArraySize = 1;
+	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	RTDesc.SampleDesc.Count = 1;
+	RTDesc.SampleDesc.Quality = 0;
+	RTDesc.Usage = D3D11_USAGE_DEFAULT;
+	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;// | D3D11_BIND_DEPTH_STENCIL;
+	RTDesc.CPUAccessFlags = 0;
+	RTDesc.MiscFlags = 0;
+	RTVD.Format = RTDesc.Format;
+	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	RTVD.Texture2D.MipSlice = 0;
+	svd.Format = RTVD.Format;
+	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	svd.Texture2D.MostDetailedMip = 0;
+	svd.Texture2D.MipLevels = 1;
+	dev->CreateTexture2D(&RTDesc, NULL, &RTTex);
+	dev->CreateRenderTargetView(RTTex,&RTVD,&PhotonBuffer);
+	dev->CreateShaderResourceView(RTTex,&svd,&RTRes);
+	
+	dsd = RTDesc;
+	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsd.Usage = D3D11_USAGE_DEFAULT;
+	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
+	dev->CreateTexture2D(&dsd, NULL, &Zbuffertex);
+	dev->CreateDepthStencilView(Zbuffertex, NULL, &Zbuffer);
+
+	devcon->OMGetRenderTargets(1, &backbuffer, &Zbuffer);
+	devcon->CreateTexture2D(&dsd, NULL, &Zbuffertex);
+	devcon->CreateDepthStencilView(Zbuffertex, NULL, &Zbuffer);
+	*/
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	////////////////////////////////////////////////////////////////////////////
@@ -179,7 +256,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	D3D11_INPUT_ELEMENT_DESC layout[] = 
 	{
 		{"POSITION",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 0,	D3D11_INPUT_PER_VERTEX_DATA, 0},
-		{"NORMAL",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 12,	D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"TEXCOORD",0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 12,	D3D11_INPUT_PER_VERTEX_DATA, 0}, // uvw for 3d texture support
+		{"NORMAL",	0, DXGI_FORMAT_R32G32B32_FLOAT,	0, 24,	D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
 
 	unsigned int layoutnum = sizeof(layout)/sizeof(D3D11_INPUT_ELEMENT_DESC);
@@ -210,35 +288,35 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	
 	float vertices[] = 
 	{
-		0.0, 0.0, 0.0, 0.0, 0.0, -1.0, // Indices 0 & 1
-		1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 
-		1.0, 1.0, 0.0, 0.0, 0.0, -1.0, 
-		0.0, 1.0, 0.0, 0.0, 0.0, -1.0, 
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0, -1.0, // Indices 0 & 1
+		1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, -1.0, 
+		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0, -1.0, 
+		0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, -1.0, 
 
-		0.0, 0.0, 0.0, 0.0, -1.0, 0.0, // Indices 2 & 3
-		0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 
-		1.0, 0.0, 1.0, 0.0, -1.0, 0.0, 
-		1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, -1.0, 0.0, // Indices 2 & 3
+		0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, -1.0, 0.0, 
+		1.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0, -1.0, 0.0, 
+		1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, -1.0, 0.0, 
 
-		0.0, 0.0, 0.0, -1.0, 0.0, 0.0, // Indices 4 & 5
-		0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 
-		0.0, 1.0, 1.0, -1.0, 0.0, 0.0, 
-		0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 
+		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  -1.0, 0.0, 0.0, // Indices 4 & 5
+		0.0, 1.0, 0.0,  1.0, 0.0, 0.0,  -1.0, 0.0, 0.0, 
+		0.0, 1.0, 1.0,  1.0, 1.0, 0.0,  -1.0, 0.0, 0.0, 
+		0.0, 0.0, 1.0,  0.0, 1.0, 0.0,  -1.0, 0.0, 0.0, 
 
-		1.0, 1.0, 1.0, 0.0, 1.0, 0.0, // Indices 6 & 7
-		0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 
-		0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 
-		1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 1.0, 0.0, // Indices 6 & 7
+		0.0, 1.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
+		0.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 1.0, 0.0, 
+		1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 1.0, 0.0, 
 
-		1.0, 1.0, 1.0, 1.0, 0.0, 0.0, // Indices 8 & 9
-		1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 
-		1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 
-		1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  1.0, 0.0, 0.0, // Indices 8 & 9
+		1.0, 1.0, 0.0,  1.0, 0.0, 0.0,  1.0, 0.0, 0.0, 
+		1.0, 0.0, 0.0,  1.0, 1.0, 0.0,  1.0, 0.0, 0.0, 
+		1.0, 0.0, 1.0,  0.0, 1.0, 0.0,  1.0, 0.0, 0.0, 
 
-		1.0, 1.0, 1.0, 0.0, 0.0, 1.0, // Indices 10 & 11
-		1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 
-		0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 
-		0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 
+		1.0, 1.0, 1.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0, // Indices 10 & 11
+		1.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 
+		0.0, 0.0, 1.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0, 
+		0.0, 1.0, 1.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0, 
 	};
 	
 	int indices[] = 
@@ -253,7 +331,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	unsigned int vSize = sizeof(vertices);
 	unsigned int iSize = sizeof(indices);
-	unsigned int vCount = vSize / (6*sizeof(float)); // vCount is calculated during model import 
+	unsigned int vCount = vSize / (9*sizeof(float)); // vCount is calculated during model import 
 	unsigned int iCount = iSize / (3*sizeof(int));
 
 	unsigned int stride = vSize / vCount;
@@ -313,20 +391,32 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 		float backgroundcolor[4] = {0.0f,0.5f,1.0f,1.0f};
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
+		//devcon->ClearDepthStencilView(Zb, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0);
+		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
+
+		devcon->PSSetShader(ps, 0, 0);
 
 		ConstantBuffer.World = World;
 		ConstantBuffer.ViewProj = View*Proj;
 		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
 		ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
-		ConstantBuffer.LightPos = XMFLOAT3(2.0*sin(-Time),0,2.0*cos(-Time));
-		devcon->UpdateSubresource(Buffer, 0, NULL, &ConstantBuffer, 0, 0);
+		ConstantBuffer.LightPos = XMFLOAT3(2.0f*sin(-Time),0,2.0f*cos(-Time));
+		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
 		
-		devcon->VSSetConstantBuffers(0, 1, &Buffer);
-		devcon->PSSetConstantBuffers(0, 1, &Buffer);
+		devcon->VSSetConstantBuffers(0, 1, &cbuffer);
+		devcon->PSSetConstantBuffers(0, 1, &cbuffer);
+		devcon->DrawIndexed(iCount*3,0,0);
+
+		devcon->PSSetShader(Lightshader, 0, 0);
+		ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
+			*XMMatrixScaling(0.1f,0.1f,0.1f)
+			*XMMatrixTranslation(
+			ConstantBuffer.LightPos.x,ConstantBuffer.LightPos.y,ConstantBuffer.LightPos.z);
+		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
+		devcon->PSSetConstantBuffers(0, 1, &cbuffer);
 		devcon->DrawIndexed(iCount*3,0,0);
 
 		swapchain->Present(0, 0);
@@ -337,13 +427,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			PrevTime = CurTime;	
 	}
 
-	SAFE_RELEASE(Buffer);
+	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
+		SAFE_RELEASE(Mat.Textures[i]);
+	SAFE_RELEASE(TextureSampler);
+
+	SAFE_RELEASE(cbuffer);
 
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);
 
-	//SAFE_RELEASE(RenderRaster);
-	//SAFE_RELEASE(DisplayRaster);
+	SAFE_RELEASE(Lightshader);
 
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);
@@ -383,6 +476,37 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 	}
 	return 0;
 
+}
+
+inline void Draw(MODELID Model)
+{
+	devcon->DrawIndexed(Model.Index_Length*3,Model.Index_StartPos,Model.Vertex_StartPos);
+}
+
+ID3D11ShaderResourceView *LoadTexture(LPCWSTR File)
+{
+	return LoadTexture(File,nullptr);
+}
+
+ID3D11ShaderResourceView *LoadTexture(LPCWSTR File,HRESULT *Err)
+{
+	ID3D11ShaderResourceView *Texture;
+	D3DX11CreateShaderResourceViewFromFile(d3ddev,File,NULL,NULL,&Texture,Err);
+	return Texture;
+}
+
+ID3D11SamplerState *CreateSampler(D3D11_SAMPLER_DESC *texdesk)
+{
+	ID3D11SamplerState *Out;
+	d3ddev->CreateSamplerState(texdesk, &Out);
+	return Out;
+}
+
+ID3D11Buffer *CreateBuffer(D3D11_BUFFER_DESC *Desc)
+{
+	ID3D11Buffer *Out;
+	d3ddev->CreateBuffer(Desc, NULL, &Out);
+	return Out;
 }
 
 void *LoadShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, LPCWSTR Errorname,
@@ -477,4 +601,133 @@ ID3D11PixelShader *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format,
 		File, Function, Format, L"Pixel Shader Compile Error",
 		CreatePixelShaderGeneric,
 		UseConstFormat);
+}
+
+TextureData LoadTextureSet(TextureLocationData Locs)
+{
+	TextureData Out;
+	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
+	{
+		Out.Low[i] = Locs.Low[i];
+		Out.High[i] = Locs.High[i];
+		Out.Textures[i] = nullptr;
+
+		if(Locs.Locations[i] == L"")
+			continue;
+
+		HRESULT Error = S_OK;
+
+		Out.Textures[i] = LoadTexture(Locs.Locations[i].c_str(),&Error);
+		if(Error == D3D11_ERROR_FILE_NOT_FOUND)
+			Out.Textures[i] = nullptr;
+	}
+
+	return Out;
+}
+
+TextureData LoadTextureSet(LPCWSTR Descriptor)
+{
+	return LoadTextureSet(LoadTextureLocations(Descriptor));
+}
+
+TextureLocationData LoadTextureLocations(LPCWSTR Descriptor)
+{
+	TextureLocationData Out;
+
+	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
+	{
+		Out.Low[i] = XMFLOAT4(0,0,0,0);
+		Out.High[i] = XMFLOAT4(1,1,1,1);
+		//Out.Locations[i];
+	}
+
+	std::ifstream fin(Descriptor);
+	if(!fin)
+		return Out;
+
+	std::wstring Desc(Descriptor);
+	std::wstring Prefix;
+	int endpos = Desc.find_last_of('/');
+	if(endpos > 0)
+		Prefix = Desc.substr(0,endpos+1);
+
+
+	std::string src;
+	std::wstring wsrc;
+	unsigned int Target = 0;
+
+	std::string TexStrings[] = 
+	{
+		"Albedo",
+		"Normal",
+		"Reflectivity",
+		"Specular",
+		"Transparency",
+		"Emission",
+		"Height",
+	};
+
+	while(true)
+	{
+
+		std::string Line;
+		std::getline(fin,Line);
+		unsigned int linelen = Line.length();
+
+		if(fin.eof())
+			break;
+
+		if(Line.substr(0,8) == "COMMENT")
+			continue;
+
+		if(Line.substr(0,5) == "src \"")
+		{
+			unsigned int i;
+			for(i=5;i<linelen;i++)
+				if(Line[i] == '\"')
+					break;
+			src = Line.substr(5,i-5);//5 for the start
+			wsrc = L"";
+			for(i=0;i<src.length();i++)
+				wsrc += src[i];
+			Out.Locations[Target] = Prefix + wsrc;
+			continue;
+		}
+
+		if(Line.substr(0,6) == "range ")
+		{
+			std::stringstream Linestream(Line.substr(6,Line.length()-6));
+			std::string word;
+			unsigned int i = 0;
+			for(i=0;i<4;i++)
+			{
+				Linestream >> word; // low
+				if(Linestream.eof())
+					break;
+				(&Out.Low[Target].x)[i] = (float)atof(word.c_str());
+				Linestream >> word; // high
+				(&Out.High[Target].x)[i] = (float)atof(word.c_str());
+			}
+
+			if(i==1)
+				for(unsigned int n=1;n<4;n++)
+				{
+					(&Out.Low[Target].x)[n] = Out.Low[Target].x;
+					(&Out.High[Target].x)[n] = Out.High[Target].x;
+				}
+			continue;
+		}
+
+		for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
+		{
+			if(Line.substr(0,TexStrings[i].length()) == TexStrings[i]) // chop off garbage
+			{
+				Target = i;
+				break;
+			}
+		}
+	}
+
+	fin.close();
+	return Out;
 }
