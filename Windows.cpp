@@ -37,6 +37,8 @@ ID3D11PixelShader *Lightshader;
 ID3D11SamplerState *TextureSampler;
 TextureData Mat;
 
+inline void Draw(MODELID Model);
+
 struct
 { // 16 BYTE intervals
 	XMMATRIX World;
@@ -168,7 +170,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
-	Mat = LoadTextureSet(L"Textures/gimmick.e3t");//MetalTile.e3t");//photosculpt-mud.e3t");//
+	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");//photosculpt-mud.e3t");//gimmick.e3t");//
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -278,32 +280,17 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	unsigned int layoutnum = sizeof(layout)/sizeof(D3D11_INPUT_ELEMENT_DESC);
 	
-	/*
 	float vertices[] = 
-	{
-		0.0, 0.0, 0.0,
-		1.0, 0.0, 0.0,
-		0.0, 1.0, 0.0,
-		1.0, 1.0, 0.0,
-		0.0, 0.0, 1.0,
-		1.0, 0.0, 1.0,
-		0.0, 1.0, 1.0,
-		1.0, 1.0, 1.0,
-	};
+	{	// Position     UVW             Normal          Tangent(U)      Binormal(V)
+		// Plane
+		// Indices 0 & 1
+	   -1.0,-1.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  
+	   -1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
+		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
+		1.0,-1.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  
+	   
 
-	int indices[] = 
-	{
-		0,1,3, 0,3,2, 
-		0,2,6, 0,6,4, 
-		0,4,5, 0,5,1, 
-		7,6,2, 7,2,3, 
-		7,3,1, 7,1,5, 
-		7,5,4, 7,4,6, 
-	};
-	*/
-	
-	float vertices[] = 
-	{	//Position      UVW             Normal          Tangent(U)      Binormal(V)
+		// Cube
 		// Indices 0 & 1
 		0.0, 0.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
 		1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0,-1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
@@ -344,12 +331,28 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	int indices[] = 
 	{
 		0,1,2, 0,2,3, 
+
+		0,1,2, 0,2,3, 
 		4,5,6, 4,6,7, 
 		8,9,10, 8,10,11, 
 		12,13,14, 12,14,15, 
 		16,17,18, 16,18,19, 
 		20,21,22, 20,22,23, 
 	};
+
+	MODELID Screenmodel;
+	Screenmodel.VertexBufferOffset = 0;
+	Screenmodel.Vertex_StartPos = 0;
+	Screenmodel.Index_StartPos = 0;
+	Screenmodel.Index_Length = 3*2;
+	Screenmodel.Vertex_Length = 4;
+	
+	MODELID Cubemodel;
+	Cubemodel.VertexBufferOffset = 15*sizeof(float) * Screenmodel.Vertex_Length;
+	Cubemodel.Vertex_StartPos = Screenmodel.Vertex_Length;
+	Cubemodel.Index_StartPos = Screenmodel.Index_Length;
+	Cubemodel.Index_Length = 3*2*6;
+	Cubemodel.Vertex_Length = 4*6;
 
 	unsigned int vSize = sizeof(vertices);
 	unsigned int iSize = sizeof(indices);
@@ -416,7 +419,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float backgroundcolor[4] = {0.0f,0.5f,1.0f,1.0f};
+		float backgroundcolor[4] = {0.0f,0.2f,0.4f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 		//devcon->ClearDepthStencilView(Zb, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
@@ -457,20 +460,19 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		
 		devcon->VSSetConstantBuffers(0, 2, cbuffer);
 		devcon->PSSetConstantBuffers(0, 2, cbuffer);
-		devcon->DrawIndexed(iCount*3,0,0);
-
-		//devcon->PSSetShader(Lightshader, 0, 0);
-		//devcon->DrawIndexed(2*3,5*3*2,0);
-		/*
+		Draw(Cubemodel);
+		
 		devcon->PSSetShader(Lightshader, 0, 0);
-		ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
-			*XMMatrixScaling(0.1f,0.1f,0.1f)
-			*XMMatrixTranslation(
-			ConstantBuffer.LightPos.x,ConstantBuffer.LightPos.y,ConstantBuffer.LightPos.z);
-		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
-		devcon->PSSetConstantBuffers(0, 1, &cbuffer);
-		devcon->DrawIndexed(iCount*3,0,0);
-		*/
+		for(int i=0;i<6;++i)
+		{
+			ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
+				*XMMatrixScaling(0.1f,0.1f,0.1f)
+				*XMMatrixTranslation(LightBuffer.Lights[i].Position.x,LightBuffer.Lights[i].Position.y,LightBuffer.Lights[i].Position.z);
+			devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+			devcon->PSSetConstantBuffers(0, 1, cbuffer);
+			Draw(Cubemodel);
+		}
+		
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 8/1000;//1ms
@@ -533,7 +535,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 
 inline void Draw(MODELID Model)
 {
-	devcon->DrawIndexed(Model.Index_Length*3,Model.Index_StartPos,Model.Vertex_StartPos);
+	devcon->DrawIndexed(Model.Index_Length,Model.Index_StartPos,Model.Vertex_StartPos);
 }
 
 ID3D11ShaderResourceView *LoadTexture(LPCWSTR File)
