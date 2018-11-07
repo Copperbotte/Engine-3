@@ -3,7 +3,8 @@ src "MetalTile Albedo.png"
 range 0 1
 
 Normal
-src "fancy_chair.png"
+COMMENT src "fancy_chair.png"
+src "Particool Normal.png"
 range -1 1
 
 Reflectivity

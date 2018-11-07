@@ -9,6 +9,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4x4 Screen2World;
 	float4 TextureRanges[14];
 	uint LightNum;
+	uint SelectedLight;
 };
 
 struct LightInfo
@@ -24,7 +25,7 @@ cbuffer LightBuffer : register(b1)
 	LightInfo Lights[100];
 }
 
-Texture2D surface[7] : register(t0);
+Texture2D surface[7] : register(t1);
 SamplerState Sampler : register(s0);
 
 float3 SampleTexture(uint Tex, float2 UV)
@@ -125,7 +126,7 @@ float4 PS(PIn In) : SV_TARGET
 		float3 lite = Lights[i].Position - In.wPos.xyz;
 		float bright = 1.0 / dot(lite, lite);
 		lite = mul(Tangentspace, normalize(lite));
-		Out += Light(lite, Normal, View, Mat)*bright*srgb2photon(Lights[i].Color);
+		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 	}
 
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
@@ -155,8 +156,8 @@ Texture2D RT : register(t0);
 GLOBALSRGB_PIn GLOBALSRGB_VS(float3 Pos : POSITION)
 {
 	GLOBALSRGB_PIn Out;
-	Out.Pos = mul(World, float4(Pos, 1.0));
-	Out.tex = float2(Pos.x, 1.0 - Pos.y);
+	Out.Pos = In.Pos;
+	Out.tex = In.tex;
 	return Out;
 }
 

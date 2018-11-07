@@ -18,8 +18,8 @@ IDXGISwapChain *swapchain;
 ID3D11Device *d3ddev;
 ID3D11DeviceContext *devcon;
 ID3D11RenderTargetView *backbuffer;
-ID3D11DepthStencilView *Zbuffer;
-ID3D11Texture2D *Zbuffertex;
+ID3D11DepthStencilView *zbuffer;
+ID3D11Texture2D *zbuffertex;
 
 ID3D10Blob *layoutblob;
 ID3D11InputLayout *vertlayout;
@@ -46,6 +46,7 @@ struct
 	XMMATRIX Screen2World;
 	XMFLOAT4 TextureRanges[14];
 	unsigned int LightNum;
+	unsigned int SelectedLight;
 } ConstantBuffer;
 
 struct LightInfo
@@ -130,14 +131,14 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	D3D11CreateDeviceAndSwapChain(NULL,D3D_DRIVER_TYPE_HARDWARE,
 		NULL,NULL,NULL,NULL,
 		D3D11_SDK_VERSION,&scd,&swapchain,&d3ddev,NULL,&devcon);
-
+	
 	// Temporary texture to set the render target to the backbuffer
 	ID3D11Texture2D *backbuffertex;
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
 	devcon->OMSetRenderTargets(1, &backbuffer, nullptr);
 	backbuffertex->Release();
-
+	
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport,sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
@@ -170,14 +171,14 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
-	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");//photosculpt-mud.e3t");//gimmick.e3t");//
+	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");//gimmick.e3t");//photosculpt-mud.e3t");//
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
 
-	devcon->PSSetShaderResources(0, 7, Mat.Textures);
-	devcon->GSSetShaderResources(0, 7, Mat.Textures);
-	devcon->VSSetShaderResources(0, 1, &Mat.Textures[TEX_Height]);
+	devcon->PSSetShaderResources(1, 7, Mat.Textures);
+	devcon->GSSetShaderResources(1, 7, Mat.Textures);
+	devcon->VSSetShaderResources(1, 1, &Mat.Textures[TEX_Height]);
 
 	devcon->PSSetSamplers(0, 1, &TextureSampler);
 	devcon->VSSetSamplers(0, 1, &TextureSampler);
@@ -221,7 +222,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//
 	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
 	devcon->RSSetState(Rasta);
-	/*
+
 	// Depth buffer
 	D3D11_TEXTURE2D_DESC RTDesc, dsd;
 	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
@@ -229,8 +230,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
 	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
 	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
-	RTDesc.Width = WIDTH;
-	RTDesc.Height = HEIGHT;
+	RTDesc.Width = WINWIDTH;
+	RTDesc.Height = WINHEIGHT;
 	RTDesc.MipLevels = 1;
 	RTDesc.ArraySize = 1;
 	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -247,22 +248,24 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	svd.Texture2D.MostDetailedMip = 0;
 	svd.Texture2D.MipLevels = 1;
-	dev->CreateTexture2D(&RTDesc, NULL, &RTTex);
-	dev->CreateRenderTargetView(RTTex,&RTVD,&PhotonBuffer);
-	dev->CreateShaderResourceView(RTTex,&svd,&RTRes);
+	//dev->CreateTexture2D(&RTDesc, NULL, &RTTex);
+	//dev->CreateRenderTargetView(RTTex,&RTVD,&PhotonBuffer);
+	//dev->CreateShaderResourceView(RTTex,&svd,&RTRes);
 	
 	dsd = RTDesc;
 	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	dsd.Usage = D3D11_USAGE_DEFAULT;
 	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
-	dev->CreateTexture2D(&dsd, NULL, &Zbuffertex);
-	dev->CreateDepthStencilView(Zbuffertex, NULL, &Zbuffer);
+	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
+	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
 
-	devcon->OMGetRenderTargets(1, &backbuffer, &Zbuffer);
-	devcon->CreateTexture2D(&dsd, NULL, &Zbuffertex);
-	devcon->CreateDepthStencilView(Zbuffertex, NULL, &Zbuffer);
-	*/
+	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
+	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
+	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+	
+	devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
+
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	////////////////////////////////////////////////////////////////////////////
@@ -421,12 +424,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 		float backgroundcolor[4] = {0.0f,0.2f,0.4f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
-		//devcon->ClearDepthStencilView(Zb, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
-
+			
 		devcon->PSSetShader(ps, 0, 0);
 
 		XMMATRIX none = XMMatrixIdentity();
@@ -451,7 +454,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		for(int i=0;i<6;++i)
 		{
 			LightBuffer.Lights[i].Color = Colors[i];
-			float dtheta = 3.141592 * ((float)i)/3.0;
+			float dtheta = 3.141592 * 2.0*((float)i)/6.0;
 			LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.0,2.0f*cos(theta+dtheta));
 		}
 
@@ -463,13 +466,14 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		Draw(Cubemodel);
 		
 		devcon->PSSetShader(Lightshader, 0, 0);
-		for(int i=0;i<6;++i)
+		for(int i=0;i<ConstantBuffer.LightNum;++i)
 		{
 			ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
 				*XMMatrixScaling(0.1f,0.1f,0.1f)
 				*XMMatrixTranslation(LightBuffer.Lights[i].Position.x,LightBuffer.Lights[i].Position.y,LightBuffer.Lights[i].Position.z);
+			ConstantBuffer.SelectedLight = i; // Bad practice, but reset every frame, and unused beyond this point.
 			devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-			devcon->PSSetConstantBuffers(0, 1, cbuffer);
+			devcon->PSSetConstantBuffers(0, 2, cbuffer);
 			Draw(Cubemodel);
 		}
 		
@@ -500,6 +504,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	SAFE_RELEASE(Rasta);
 	SAFE_RELEASE(Blenda);
 
+	SAFE_RELEASE(zbuffer);
+	SAFE_RELEASE(zbuffertex);
 	SAFE_RELEASE(backbuffer);
 	SAFE_RELEASE(swapchain);
 	SAFE_RELEASE(devcon);

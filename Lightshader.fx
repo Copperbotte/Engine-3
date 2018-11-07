@@ -8,9 +8,22 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4x4 ViewProj;
 	float4x4 Screen2World;
 	float4 TextureRanges[14];
-	float4 LightColor;
-	float3 LightPos;
+	uint LightNum;
+	uint SelectedLight;
 };
+
+struct LightInfo
+{
+	float3 Position;
+	float padding1;
+	float3 Color;
+	float padding2;
+};
+
+cbuffer LightBuffer : register(b1)
+{ // 16 byte intervals divided by sizeof float (4) = 4 floats per interval
+	LightInfo Lights[100];
+}
 
 struct PIn
 {
@@ -24,5 +37,5 @@ struct PIn
 
 float4 PS(PIn In) : SV_TARGET
 {
-	return float4(1.0,1.0,1.0,1.0);
+	return float4(Lights[SelectedLight].Color,1.0);
 }
