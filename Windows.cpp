@@ -30,7 +30,7 @@ ID3D11BlendState *Blenda;
 
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
-ID3D11Buffer *cbuffer;
+ID3D11Buffer *cbuffer[2];
 
 ID3D11PixelShader *Lightshader;
 
@@ -43,9 +43,21 @@ struct
 	XMMATRIX ViewProj;
 	XMMATRIX Screen2World;
 	XMFLOAT4 TextureRanges[14];
-	XMFLOAT4 LightColor;
-	XMFLOAT3 LightPos;
+	unsigned int LightNum;
 } ConstantBuffer;
+
+struct LightInfo
+{
+	XMFLOAT3 Position;
+	float padding1;
+	XMFLOAT3 Color;
+	float padding2;
+};
+
+struct
+{ // 16 BYTE intervals
+	LightInfo Lights[100];
+} LightBuffer;
 
 Key_Inputs Key;
 
@@ -156,7 +168,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
-	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//
+	Mat = LoadTextureSet(L"Textures/gimmick.e3t");//MetalTile.e3t");//photosculpt-mud.e3t");//
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -180,7 +192,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	cbbd.CPUAccessFlags = 0;
 	cbbd.MiscFlags = 0;
-	d3ddev->CreateBuffer(&cbbd,NULL,&cbuffer);
+	d3ddev->CreateBuffer(&cbbd,NULL,&cbuffer[0]);
+	cbbd.ByteWidth = sizeof(LightBuffer);
+	d3ddev->CreateBuffer(&cbbd,NULL,&cbuffer[1]);
 
 	D3D11_BLEND_DESC blendesc;
 	ZeroMemory(&blendesc,sizeof(D3D11_BLEND_DESC));
@@ -412,18 +426,42 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 		devcon->PSSetShader(ps, 0, 0);
 
+		XMMATRIX none = XMMatrixIdentity();
+
 		ConstantBuffer.World = World;
 		ConstantBuffer.ViewProj = View*Proj;
 		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
-		ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
-		float theta = Time;//*4.0/3.0;
-		ConstantBuffer.LightPos = XMFLOAT3(2.0f*sin(-theta),0.0,2.0f*cos(-theta));
-		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
+		//ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
 		
-		devcon->VSSetConstantBuffers(0, 1, &cbuffer);
-		devcon->PSSetConstantBuffers(0, 1, &cbuffer);
+		XMFLOAT3 Colors[6] = 
+		{
+			XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
+			XMFLOAT3(1.0,1.0,0.0),
+			XMFLOAT3(0.0,1.0,0.0),
+			XMFLOAT3(0.0,1.0,1.0),
+			XMFLOAT3(0.0,0.0,1.0),
+			XMFLOAT3(1.0,0.0,1.0),
+		};
+		ConstantBuffer.LightNum = 6;
+
+		float theta = -Time;//*4.0/3.0;
+		for(int i=0;i<6;++i)
+		{
+			LightBuffer.Lights[i].Color = Colors[i];
+			float dtheta = 3.141592 * ((float)i)/3.0;
+			LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.0,2.0f*cos(theta+dtheta));
+		}
+
+		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+		devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
+		
+		devcon->VSSetConstantBuffers(0, 2, cbuffer);
+		devcon->PSSetConstantBuffers(0, 2, cbuffer);
 		devcon->DrawIndexed(iCount*3,0,0);
 
+		//devcon->PSSetShader(Lightshader, 0, 0);
+		//devcon->DrawIndexed(2*3,5*3*2,0);
+		/*
 		devcon->PSSetShader(Lightshader, 0, 0);
 		ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
 			*XMMatrixScaling(0.1f,0.1f,0.1f)
@@ -432,7 +470,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		devcon->UpdateSubresource(cbuffer, 0, NULL, &ConstantBuffer, 0, 0);
 		devcon->PSSetConstantBuffers(0, 1, &cbuffer);
 		devcon->DrawIndexed(iCount*3,0,0);
-
+		*/
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 8/1000;//1ms
@@ -445,7 +483,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		SAFE_RELEASE(Mat.Textures[i]);
 	SAFE_RELEASE(TextureSampler);
 
-	SAFE_RELEASE(cbuffer);
+	for(unsigned int i=0;i<2;i++)
+		SAFE_RELEASE(cbuffer[i]);
 
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);

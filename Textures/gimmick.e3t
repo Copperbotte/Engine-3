@@ -1,0 +1,26 @@
+Albedo
+src "MetalTile Albedo.png"
+range 0 1
+
+Normal
+src "fancy_chair.png"
+range -1 1
+
+Reflectivity
+src "MetalTile Gloss.png"
+range 0.5 0.5
+
+Specular
+src "MetalTile Specular.png"
+range 100 100
+
+Transparency
+src "MetalTile Albedo.png"
+range 0 0 
+
+Emission
+src "MetalTile Gloss.png"
+range 0 0 
+
+Height
+range 0 0

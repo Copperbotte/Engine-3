@@ -8,9 +8,21 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4x4 ViewProj;
 	float4x4 Screen2World;
 	float4 TextureRanges[14];
-	float4 LightColor;
-	float3 LightPos;
+	uint LightNum;
 };
+
+struct LightInfo
+{
+	float3 Position;
+	float padding1;
+	float3 Color;
+	float padding2;
+};
+
+cbuffer LightBuffer : register(b1)
+{ // 16 byte intervals divided by sizeof float (4) = 4 floats per interval
+	LightInfo Lights[100];
+}
 
 Texture2D surface[7] : register(t0);
 SamplerState Sampler : register(s0);
@@ -20,6 +32,9 @@ float3 SampleTexture(uint Tex, float2 UV)
 	float3 Out = surface[Tex].Sample(Sampler, UV).rgb;
 	if(Tex == 0 || Tex == 5)
 		Out = srgb2photon(Out);
+	//if(Tex == 3)
+	//	Out = pow(Out,4);
+		
 	//Lerp
 	return (TextureRanges[Tex+7]-TextureRanges[Tex])*Out + TextureRanges[Tex];
 	//return lerp(TextureRanges[Tex+7],TextureRanges[Tex],Out); // This lerp doesn't appear to work
@@ -95,24 +110,26 @@ float4 PS(PIn In) : SV_TARGET
 	Mat.Power = SampleTexture(3,In.Tex);
 
 	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
-
-	//return float4((In.Tan+1.0) / 2.0, 1.0) * float4(photon2srgb(Mat.Albedo),1.0);
-	
 	float3 View = normalize(In.vPos.xyz - In.wPos.xyz);
-	float3 lite = LightPos - In.wPos.xyz;
-	float bright = 1.0 / dot(lite, lite);
-
-	float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	
 	float3x3 Tangentspace = float3x3(In.Tan, In.Bin, In.Norm);
-	
-	lite = mul(Tangentspace, normalize(lite));
 	View = mul(Tangentspace, View);
 	
-	float3 Out = Light(lite, Normal, View, Mat)*bright*orange;
-	float3 Ambient = (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity;
+	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
+	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
 	
-	Out += Ambient * srgb2photon(float3(0.0,0.5,1.0));// * 0.9;
+	//Out *= 0;
+	
+	for(uint i=0;i<LightNum;++i)
+	{
+		float3 lite = Lights[i].Position - In.wPos.xyz;
+		float bright = 1.0 / dot(lite, lite);
+		lite = mul(Tangentspace, normalize(lite));
+		Out += Light(lite, Normal, View, Mat)*bright*srgb2photon(Lights[i].Color);
+	}
+
+	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
+	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
 	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 }

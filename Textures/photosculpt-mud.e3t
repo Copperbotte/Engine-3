@@ -12,7 +12,7 @@ range 0 1
 
 Specular
 src "photosculpt-mud-displace.jpg"
-range 10 1000
+range 1 1000
 
 Transparency
 src "Transparency.png"
