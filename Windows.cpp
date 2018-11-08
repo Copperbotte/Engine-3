@@ -413,20 +413,18 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			break;
 
 		Key.Update();
-		if(Key(VK_SPACE))
-		{
-			PrevTime = CurTime;
-			CurTime = PrevTime;
-		}
-		else
-			CurTime = GetTickCount();
+		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float backgroundcolor[4] = {0.0f,0.2f,0.4f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
+		float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
+		float yscale = 1.0;
+		if(Key(VK_SPACE))
+			yscale = 2.0;
+
+		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixScaling(1.0,yscale,1.0)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
 			
@@ -465,13 +463,23 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		devcon->PSSetConstantBuffers(0, 2, cbuffer);
 		Draw(Cubemodel);
 		
+		ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
+			*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
+			*XMMatrixTranslation(0,-0.5f,0.0) // Translate to floor
+			*XMMatrixRotationY(Time/3.0f); // Match cube rotation
+			
+		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+		devcon->VSSetConstantBuffers(0, 2, cbuffer);
+		devcon->PSSetConstantBuffers(0, 2, cbuffer);
+		Draw(Screenmodel);
+
 		devcon->PSSetShader(Lightshader, 0, 0);
 		for(int i=0;i<ConstantBuffer.LightNum;++i)
 		{
 			ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
 				*XMMatrixScaling(0.1f,0.1f,0.1f)
 				*XMMatrixTranslation(LightBuffer.Lights[i].Position.x,LightBuffer.Lights[i].Position.y,LightBuffer.Lights[i].Position.z);
-			ConstantBuffer.SelectedLight = i; // Bad practice, but reset every frame, and unused beyond this point.
+			ConstantBuffer.SelectedLight = i;
 			devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 			devcon->PSSetConstantBuffers(0, 2, cbuffer);
 			Draw(Cubemodel);

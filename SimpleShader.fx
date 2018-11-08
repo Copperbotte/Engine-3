@@ -58,8 +58,6 @@ struct PIn
 	float3 Bin : BINORMAL0;
 	float2 Tex : TEXCOORD0;
 	float4 wPos : TEXCOORD1;
-	float3 sPos : TEXCOORD2;
-	float3 vPos : TEXCOORD3;
 };
 
 PIn VS(VIn In)
@@ -73,8 +71,6 @@ PIn VS(VIn In)
 	Out.Norm = mul(World, float4(In.Norm,0.0)).xyz; // 0.0 disables translations into worldspace
 	Out.Tan = mul(World, float4(In.Tan,0.0)).xyz; // 3 dots instead of building a matrix is faster
 	Out.Bin = mul(World, float4(In.Bin,0.0)).xyz;
-	Out.sPos = Out.Pos.xyz / Out.Pos.w; // duplicate screen pos for view vector
-	Out.vPos = mul(Screen2World, float4(Out.sPos.xy,0.0,1.0)).xyz;
 	
 	return Out;	
 }
@@ -111,9 +107,15 @@ float4 PS(PIn In) : SV_TARGET
 	Mat.Power = SampleTexture(3,In.Tex);
 
 	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
-	float3 View = normalize(In.vPos.xyz - In.wPos.xyz);
+	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
+	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
+	float3 View = normalize(vPos - In.wPos.xyz);
+
+	//return float4(sPos,0.0,1.0);
 	
-	float3x3 Tangentspace = float3x3(In.Tan, In.Bin, In.Norm);
+	float3x3 Tangentspace = float3x3(normalize(In.Tan), 
+									 normalize(In.Bin),
+									 normalize(In.Norm));
 	View = mul(Tangentspace, View);
 	
 	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
