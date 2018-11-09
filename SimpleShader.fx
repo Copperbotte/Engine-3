@@ -172,7 +172,8 @@ SRGBPOST_POUT SRGBPOST_PS(SRGBPOST_PIN In)
 	SRGBPOST_POUT Out;
 	
 	Out.Color = saturate(RT.Sample(Sampler, In.tex));
-	float lum = dot(Out.Color,float3(0.27,0.67,0.06));
+	float lum = log(dot(Out.Color,float3(0.27,0.67,0.06)));
+	lum = 2.0 + lum;
 	Out.Luminosity = float4(float3(1.0,1.0,1.0) * lum,1.0);
 
 	Out.Color.xyz = photon2srgb(Out.Color.xyz);
