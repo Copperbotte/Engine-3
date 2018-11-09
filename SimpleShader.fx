@@ -135,7 +135,7 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
 	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
-	return float4(saturate(Out),1.0);
+	return float4(Out,1.0);
 }
 
 // Physically accurate lighting, uses Srgb2Photon.fx
@@ -167,20 +167,16 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 	return Out;
 }
 
-SRGBPOST_POUT SRGBPOST_PS(SRGBPOST_PIN In)
+float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
-	SRGBPOST_POUT Out;
-	
-	Out.Color = saturate(RT.Sample(Sampler, In.tex));
-	float lum = log(dot(Out.Color,float3(0.27,0.67,0.06)));
-	lum = 2.0 + lum;
-	Out.Luminosity = float4(float3(1.0,1.0,1.0) * lum,1.0);
+	float4 Out = RT.Sample(Sampler, In.tex);
+	Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
+	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
+}
 
-	Out.Color.xyz = photon2srgb(Out.Color.xyz);
-	
-	float4 temp = Out.Color;
-	Out.Color = Out.Luminosity;
-	Out.Luminosity = temp;
-	
-	return Out;
+float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
+{
+	float4 Out = RT.Sample(Sampler, In.tex);
+	float lum = log(dot(Out.xyz,float3(0.27,0.67,0.06)));
+	return float4(float3(1.0,1.0,1.0) * lum,1.0);
 }
