@@ -8,12 +8,14 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
 static TCHAR szWindowClass[] = TEXT("Engine3");
 static TCHAR szTitle[] = TEXT("VIDEOGAMES");
 
+//Templated shader loading functions
 ID3D11VertexShader	   *LoadVertexShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 ID3D11HullShader	     *LoadHullShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 ID3D11DomainShader	   *LoadDomainShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 ID3D11GeometryShader *LoadGeometryShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 ID3D11PixelShader	    *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 
+//Mandatory structures
 IDXGISwapChain *swapchain;
 ID3D11Device *d3ddev;
 ID3D11DeviceContext *devcon;
@@ -21,20 +23,31 @@ ID3D11RenderTargetView *backbuffer;
 ID3D11DepthStencilView *zbuffer;
 ID3D11Texture2D *zbuffertex;
 
+//Models
 ID3D10Blob *layoutblob;
 ID3D11InputLayout *vertlayout;
 ID3D11Buffer *vbuffer, *ibuffer;
 
+//Rasterizer
 ID3D11RasterizerState *Rasta;
+ID3D11RasterizerState *DisplayRaster;
 ID3D11BlendState *Blenda;
 
+//Render target
+ID3D11RenderTargetView *RTbuffer;
+ID3D11Texture2D *RTtex;
+ID3D11ShaderResourceView *RTres;
+ID3D11VertexShader *RTvs;
+ID3D11PixelShader *RTps;
+
+//Shaders
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
-ID3D11Buffer *cbuffer[2];
-
 ID3D11PixelShader *Lightshader;
-
+ID3D11Buffer *cbuffer[2];
 ID3D11SamplerState *TextureSampler;
+
+//Textures
 TextureData Mat;
 
 inline void Draw(MODELID Model);
@@ -47,6 +60,7 @@ struct
 	XMFLOAT4 TextureRanges[14];
 	unsigned int LightNum;
 	unsigned int SelectedLight;
+	XMFLOAT2 UVScale;
 } ConstantBuffer;
 
 struct LightInfo
@@ -108,7 +122,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	////////////////////////////////////////////////////////////////////////////
 	////////////////////////// DirectX 11 Initialization ///////////////////////
 	////////////////////////////////////////////////////////////////////////////
-
+	
 	// Swap chain are backbuffers that are swapped between rendering and displaying modes.
 	DXGI_SWAP_CHAIN_DESC scd;
 	ZeroMemory(&scd,sizeof(DXGI_SWAP_CHAIN_DESC));
@@ -159,6 +173,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
 
+	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
+	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
+
 	devcon->VSSetShader(vs, 0, 0);
 	devcon->PSSetShader(ps, 0, 0);
 
@@ -171,7 +188,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
-	Mat = LoadTextureSet(L"Textures/MetalTile.e3t");//gimmick.e3t");//photosculpt-mud.e3t");//
+	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//gimmick.e3t");//Portal.e3t");//
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -221,6 +238,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	rastadec.FillMode = D3D11_FILL_SOLID;//D3D11_FILL_WIREFRAME;//
 	rastadec.CullMode = D3D11_CULL_BACK;//D3D11_CULL_NONE;//
 	d3ddev->CreateRasterizerState(&rastadec,&Rasta);
+	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
+	rastadec.FillMode = D3D11_FILL_SOLID; // Display states should never change
+	rastadec.CullMode = D3D11_CULL_NONE;
+	d3ddev->CreateRasterizerState(&rastadec,&DisplayRaster);
 	devcon->RSSetState(Rasta);
 
 	// Depth buffer
@@ -238,7 +259,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTDesc.SampleDesc.Count = 1;
 	RTDesc.SampleDesc.Quality = 0;
 	RTDesc.Usage = D3D11_USAGE_DEFAULT;
-	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;// | D3D11_BIND_DEPTH_STENCIL;
+	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 	RTDesc.CPUAccessFlags = 0;
 	RTDesc.MiscFlags = 0;
 	RTVD.Format = RTDesc.Format;
@@ -248,9 +269,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	svd.Texture2D.MostDetailedMip = 0;
 	svd.Texture2D.MipLevels = 1;
-	//dev->CreateTexture2D(&RTDesc, NULL, &RTTex);
-	//dev->CreateRenderTargetView(RTTex,&RTVD,&PhotonBuffer);
-	//dev->CreateShaderResourceView(RTTex,&svd,&RTRes);
+	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
+	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
+	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
 	
 	dsd = RTDesc;
 	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -263,8 +284,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
 	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
 	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
-	
-	devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -412,31 +431,19 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		if(msg.message == WM_QUIT)
 			break;
 
+		//Think
+
 		Key.Update();
 		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
-		devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
-		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-
-		float yscale = 1.0;
-		if(Key(VK_SPACE))
-			yscale = 2.0;
-
-		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixScaling(1.0,yscale,1.0)*XMMatrixRotationY(Time/3.0f);
+		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
-			
-		devcon->PSSetShader(ps, 0, 0);
 
-		XMMATRIX none = XMMatrixIdentity();
+		if(Key(VK_SPACE))
+			ConstantBuffer.UVScale = XMFLOAT2(3.0,3.0);
 
-		ConstantBuffer.World = World;
-		ConstantBuffer.ViewProj = View*Proj;
-		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
-		//ConstantBuffer.LightColor = XMFLOAT4(1.0,0.5,0.0,1.0);
-		
 		XMFLOAT3 Colors[6] = 
 		{
 			XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
@@ -455,6 +462,20 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			float dtheta = 3.141592 * 2.0*((float)i)/6.0;
 			LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.0,2.0f*cos(theta+dtheta));
 		}
+		
+		ConstantBuffer.World = World;
+		ConstantBuffer.ViewProj = View*Proj;
+		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
+		ConstantBuffer.UVScale = XMFLOAT2(1.0,1.0);
+
+		//Render
+		//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
+		float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f};
+		devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
+		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
+		devcon->VSSetShader(vs, 0, 0);
+		devcon->PSSetShader(ps, 0, 0);
 
 		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 		devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
@@ -467,7 +488,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
 			*XMMatrixTranslation(0,-0.5f,0.0) // Translate to floor
 			*XMMatrixRotationY(Time/3.0f); // Match cube rotation
-			
+		ConstantBuffer.UVScale = XMFLOAT2(20,20);
+
 		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 		devcon->VSSetConstantBuffers(0, 2, cbuffer);
 		devcon->PSSetConstantBuffers(0, 2, cbuffer);
@@ -485,10 +507,24 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			Draw(Cubemodel);
 		}
 		
+
+		
+		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
+		//devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
+		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		devcon->VSSetShader(RTvs, 0, 0);
+		devcon->HSSetShader(NULL, 0, 0);
+		devcon->DSSetShader(NULL, 0, 0);
+		devcon->GSSetShader(NULL, 0, 0);
+		devcon->PSSetShader(RTps, 0, 0);
+		devcon->PSSetShaderResources(0, 1, &RTres);
+		devcon->RSSetState(DisplayRaster);
+		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		Draw(Screenmodel);
+		
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 8/1000;//1ms
-
 		while(CurTime - PrevTime < framelimit)
 			PrevTime = CurTime;	
 	}
@@ -505,11 +541,18 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	SAFE_RELEASE(Lightshader);
 
+	SAFE_RELEASE(RTbuffer);
+	SAFE_RELEASE(RTtex);
+	SAFE_RELEASE(RTres);
+	SAFE_RELEASE(RTvs);
+	SAFE_RELEASE(RTps);
+
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);
 	SAFE_RELEASE(vbuffer);
 	SAFE_RELEASE(ibuffer);
 	SAFE_RELEASE(Rasta);
+	SAFE_RELEASE(DisplayRaster);
 	SAFE_RELEASE(Blenda);
 
 	SAFE_RELEASE(zbuffer);

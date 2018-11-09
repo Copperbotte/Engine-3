@@ -10,6 +10,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4 TextureRanges[14];
 	uint LightNum;
 	uint SelectedLight;
+	float2 UVScale;
 };
 
 struct LightInfo
@@ -25,6 +26,7 @@ cbuffer LightBuffer : register(b1)
 	LightInfo Lights[100];
 }
 
+Texture2D RT : register(t0); // Render target
 Texture2D surface[7] : register(t1);
 SamplerState Sampler : register(s0);
 
@@ -64,7 +66,7 @@ PIn VS(VIn In)
 {
 	PIn Out;
 	
-	Out.Tex = In.Tex.xy;
+	Out.Tex = In.Tex.xy * UVScale;
 	
 	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
 	Out.Pos = mul(ViewProj,Out.wPos);
@@ -93,9 +95,9 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 	
 	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
 	float3 Specular = pow(max(0.0f,dot(ViewVec,ReflVec)),Mat.Power);
-	
-	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse;// / PI; // Diffuse
-	Out += Mat.Reflectivity * Specular * (Mat.Power + 2.0)/2.0;//(2.0  * PI); // Specular
+
+	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
+	Out += Mat.Reflectivity * Specular * (Mat.Power + 2.0)/(2.0  * PI); // Specular
 	return Out;
 }
 
@@ -105,7 +107,7 @@ float4 PS(PIn In) : SV_TARGET
 	Mat.Albedo = SampleTexture(0,In.Tex);
 	Mat.Reflectivity = SampleTexture(2,In.Tex);
 	Mat.Power = SampleTexture(3,In.Tex);
-
+	
 	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
@@ -134,39 +136,36 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
-	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
+	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
+	return float4(saturate(Out),1.0);
 }
-
 
 // Physically accurate lighting, uses Srgb2Photon.fx
 // Rendered on a 2nd pass
-/*
-struct GLOBALSRGB_VIN
+
+struct SRGBPOST_VIN
 {
 	float3 Pos : POSITION;
 	float3 tex : TEXCOORD0;
 };
 
-struct GLOBALSRGB_PIn
+struct SRGBPOST_PIN
 {
 	float4 Pos : SV_POSITION; 
 	float2 tex : TEXCOORD0;
 };
 
-Texture2D RT : register(t0);
-
-GLOBALSRGB_PIn GLOBALSRGB_VS(float3 Pos : POSITION)
+SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 {
-	GLOBALSRGB_PIn Out;
-	Out.Pos = In.Pos;
-	Out.tex = In.tex;
+	SRGBPOST_PIN Out;
+	Out.Pos = float4(In.Pos,1.0);
+	Out.tex = In.tex * float2(1.0,-1.0);
 	return Out;
 }
 
-float4 GLOBALSRGB_PS(GLOBALSRGB_VIN In) : SV_TARGET
+float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
-	float4 Color = saturate(RT.Sample(albedosampler, In.tex));
+	float4 Color = saturate(RT.Sample(Sampler, In.tex));
 	Color.xyz = photon2srgb(Color.xyz);
 	return Color;
 }
-*/

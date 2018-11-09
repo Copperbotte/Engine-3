@@ -1,5 +1,3 @@
-
-
 // https://en.wikipedia.org/wiki/SRGB
 // These functions convert to and from linear to brightness color spaces, which are used differently in rendering and displaying.
 float srgb2photoncomp(float srgb)

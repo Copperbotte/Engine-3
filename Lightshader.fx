@@ -10,6 +10,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4 TextureRanges[14];
 	uint LightNum;
 	uint SelectedLight;
+	float2 UVScale;
 };
 
 struct LightInfo
