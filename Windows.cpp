@@ -35,10 +35,16 @@ ID3D11BlendState *Blenda;
 
 //Render target
 ID3D11RenderTargetView *RTbuffer;
-ID3D11Texture2D *RTtex;
 ID3D11ShaderResourceView *RTres;
 ID3D11VertexShader *RTvs;
 ID3D11PixelShader *RTps;
+
+//hdr
+ID3D11RenderTargetView *HDRbuffer;
+ID3D11Texture2D *HDRtex;
+ID3D11ShaderResourceView *HDRres;
+ID3D11SamplerState *HDRsampler;
+ID3D11PixelShader *HDRps;
 
 //Shaders
 ID3D11VertexShader *vs;
@@ -145,14 +151,67 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	D3D11CreateDeviceAndSwapChain(NULL,D3D_DRIVER_TYPE_HARDWARE,
 		NULL,NULL,NULL,NULL,
 		D3D11_SDK_VERSION,&scd,&swapchain,&d3ddev,NULL,&devcon);
-	
-	// Temporary texture to set the render target to the backbuffer
-	ID3D11Texture2D *backbuffertex;
+
+	// Scary to have this before the swap chain set
+	// Depth buffer
+	D3D11_TEXTURE2D_DESC RTDesc, dsd;
+	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
+	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
+	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
+	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
+	RTDesc.Width = WINWIDTH;
+	RTDesc.Height = WINHEIGHT;
+	RTDesc.MipLevels = (int)ceil(log((double)WINWIDTH)/log(2.0));
+	RTDesc.ArraySize = 1;
+	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	RTDesc.SampleDesc.Count = 1;
+	RTDesc.SampleDesc.Quality = 0;
+	RTDesc.Usage = D3D11_USAGE_DEFAULT;
+	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	RTDesc.CPUAccessFlags = 0;
+	RTDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	RTVD.Format = RTDesc.Format;
+	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	RTVD.Texture2D.MipSlice = 0;
+	svd.Format = RTVD.Format;
+	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	svd.Texture2D.MostDetailedMip = 0;
+	svd.Texture2D.MipLevels = RTDesc.MipLevels;
+
+	// Temporary textures to set the render target to the backbuffer and RTbuffer
+	ID3D11Texture2D *backbuffertex, *RTtex;
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
-	devcon->OMSetRenderTargets(1, &backbuffer, nullptr);
-	backbuffertex->Release();
-	
+
+	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
+	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
+	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
+
+	d3ddev->CreateTexture2D(&RTDesc, NULL, &HDRtex);
+	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
+	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
+
+	SAFE_RELEASE(backbuffertex);
+	SAFE_RELEASE(RTtex);
+	//SAFE_RELEASE(HDRtex);
+
+	dsd = RTDesc;
+	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsd.Usage = D3D11_USAGE_DEFAULT;
+	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	dsd.MiscFlags = 0;
+
+	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
+	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+
+	devcon->OMSetRenderTargets(1, &backbuffer, nullptr); // required
+	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
+	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
+	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+
+	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
 	D3D11_VIEWPORT viewport;
 	ZeroMemory(&viewport,sizeof(D3D11_VIEWPORT));
 	viewport.TopLeftX = 0;
@@ -162,48 +221,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 	devcon->RSSetViewports(1, &viewport);
-
-	////////////////////////////////////////////////////////////////////////////
-	///////////////////////////// Scene Initialization /////////////////////////
-	////////////////////////////////////////////////////////////////////////////
-	//Scene must be initialized before these next steps, to load in the model.
-
-	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
-	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
-
-	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
-
-	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
-	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
-
-	devcon->VSSetShader(vs, 0, 0);
-	devcon->PSSetShader(ps, 0, 0);
-
-	D3D11_SAMPLER_DESC texdesk;
-	ZeroMemory(&texdesk,sizeof(D3D11_SAMPLER_DESC));
-	texdesk.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;//D3D11_FILTER_MIN_MAG_MIP_POINT;//
-	texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	texdesk.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	texdesk.MinLOD = 0;
-	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
-	TextureSampler = CreateSampler(&texdesk);
-	
-	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//gimmick.e3t");//Portal.e3t");//
-
-	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
-	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
-
-	devcon->PSSetShaderResources(1, 7, Mat.Textures);
-	devcon->GSSetShaderResources(1, 7, Mat.Textures);
-	devcon->VSSetShaderResources(1, 1, &Mat.Textures[TEX_Height]);
-
-	devcon->PSSetSamplers(0, 1, &TextureSampler);
-	devcon->VSSetSamplers(0, 1, &TextureSampler);
-
-
-	////////////////////////////////////////////////////////////////////////////
-	///////////////////////////// More initialization //////////////////////////
-	////////////////////////////////////////////////////////////////////////////
 
 	D3D11_BUFFER_DESC cbbd;
 	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
@@ -244,48 +261,52 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateRasterizerState(&rastadec,&DisplayRaster);
 	devcon->RSSetState(Rasta);
 
-	// Depth buffer
-	D3D11_TEXTURE2D_DESC RTDesc, dsd;
-	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
-	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
-	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
-	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
-	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
-	RTDesc.Width = WINWIDTH;
-	RTDesc.Height = WINHEIGHT;
-	RTDesc.MipLevels = 1;
-	RTDesc.ArraySize = 1;
-	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	RTDesc.SampleDesc.Count = 1;
-	RTDesc.SampleDesc.Quality = 0;
-	RTDesc.Usage = D3D11_USAGE_DEFAULT;
-	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	RTDesc.CPUAccessFlags = 0;
-	RTDesc.MiscFlags = 0;
-	RTVD.Format = RTDesc.Format;
-	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	RTVD.Texture2D.MipSlice = 0;
-	svd.Format = RTVD.Format;
-	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	svd.Texture2D.MostDetailedMip = 0;
-	svd.Texture2D.MipLevels = 1;
-	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
-	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
-	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// Scene Initialization /////////////////////////
+	////////////////////////////////////////////////////////////////////////////
+	//Scene must be initialized before these next steps, to load in the model.
+
+	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
+	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
+
+	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
+
+	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
+	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
+
+	HDRps = LoadPixelShader(L"SimpleShader.fx", "HDR_LUMEN_PS", "ps_5_0", false);
+
+	devcon->VSSetShader(vs, 0, 0);
+	devcon->PSSetShader(ps, 0, 0);
+
+	D3D11_SAMPLER_DESC texdesk;
+	ZeroMemory(&texdesk,sizeof(D3D11_SAMPLER_DESC));
+	texdesk.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;//D3D11_FILTER_MIN_MAG_MIP_POINT;//
+	texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	texdesk.ComparisonFunc = D3D11_COMPARISON_NEVER;
+	texdesk.MinLOD = 0;
+	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
+	TextureSampler = CreateSampler(&texdesk);
 	
-	dsd = RTDesc;
-	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	dsd.Usage = D3D11_USAGE_DEFAULT;
-	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	//texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	//HDRsampler = CreateSampler(&texdesk);
 
-	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
-	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//gimmick.e3t");//Portal.e3t");//
 
-	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
-	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
-	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
+	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
 
-	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	devcon->PSSetShaderResources(1, 7, Mat.Textures);
+	devcon->GSSetShaderResources(1, 7, Mat.Textures);
+	devcon->VSSetShaderResources(1, 1, &Mat.Textures[TEX_Height]);
+
+	devcon->PSSetSamplers(0, 1, &TextureSampler);
+	devcon->VSSetSamplers(0, 1, &TextureSampler);
+
+
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// More initialization //////////////////////////
+	////////////////////////////////////////////////////////////////////////////
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
@@ -431,7 +452,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		if(msg.message == WM_QUIT)
 			break;
 
-		//Think
+		////////////////////////////////////////////////////////////////////////
+		//////////////////////////////////// Think /////////////////////////////
+		////////////////////////////////////////////////////////////////////////
 
 		Key.Update();
 		CurTime = GetTickCount();
@@ -447,7 +470,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		XMFLOAT3 Colors[6] = 
 		{
 			XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
-			XMFLOAT3(1.0,1.0,0.0),
+			XMFLOAT3(100.0,100.0,0.0),
 			XMFLOAT3(0.0,1.0,0.0),
 			XMFLOAT3(0.0,1.0,1.0),
 			XMFLOAT3(0.0,0.0,1.0),
@@ -468,7 +491,11 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
 		ConstantBuffer.UVScale = XMFLOAT2(1.0,1.0);
 
-		//Render
+		////////////////////////////////////////////////////////////////////////
+		//////////////////////////////////// Render ////////////////////////////
+		////////////////////////////////////////////////////////////////////////
+
+
 		//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 		float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f};
 		devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
@@ -476,6 +503,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
 		devcon->VSSetShader(vs, 0, 0);
 		devcon->PSSetShader(ps, 0, 0);
+
+		devcon->PSSetShaderResources(1, 7, Mat.Textures);
 
 		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 		devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
@@ -507,21 +536,39 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			Draw(Cubemodel);
 		}
 		
+		////////////////////////////////////////////////////////////////////////
+		/////////////////////////////// Postprocess ////////////////////////////
+		////////////////////////////////////////////////////////////////////////
 
-		
+		//Convert linear image to log luminosity
+		devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
+		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		devcon->VSSetShader(RTvs, 0, 0);
+		devcon->HSSetShader(NULL, 0, 0);
+		devcon->DSSetShader(NULL, 0, 0);
+		devcon->GSSetShader(NULL, 0, 0);
+		devcon->PSSetShader(HDRps, 0, 0);
+		devcon->PSSetShaderResources(0, 1, &RTres); // Pull from render target
+		devcon->RSSetState(DisplayRaster);
+		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		Draw(Screenmodel);
+
+		devcon->GenerateMips(HDRres);
+
+		//Convert from linear to srgb color space and display
+		ID3D11ShaderResourceView *Resources[2] = {RTres, HDRres};
 		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
-		//devcon->ClearRenderTargetView(backbuffer, backgroundcolor);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		devcon->VSSetShader(RTvs, 0, 0);
 		devcon->HSSetShader(NULL, 0, 0);
 		devcon->DSSetShader(NULL, 0, 0);
 		devcon->GSSetShader(NULL, 0, 0);
 		devcon->PSSetShader(RTps, 0, 0);
-		devcon->PSSetShaderResources(0, 1, &RTres);
+		devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
 		devcon->RSSetState(DisplayRaster);
 		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		Draw(Screenmodel);
-		
+
 		swapchain->Present(0, 0);
 
 		const unsigned long framelimit = 8/1000;//1ms
@@ -535,6 +582,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	for(unsigned int i=0;i<2;i++)
 		SAFE_RELEASE(cbuffer[i]);
+
+	SAFE_RELEASE(HDRps);
+	SAFE_RELEASE(HDRbuffer);
+	SAFE_RELEASE(HDRres);
+	//SAFE_RELEASE(HDRsampler);
+	SAFE_RELEASE(HDRtex);
 
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);

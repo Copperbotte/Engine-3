@@ -112,8 +112,6 @@ float4 PS(PIn In) : SV_TARGET
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	float3 View = normalize(vPos - In.wPos.xyz);
-
-	//return float4(sPos,0.0,1.0);
 	
 	float3x3 Tangentspace = float3x3(normalize(In.Tan), 
 									 normalize(In.Bin),
@@ -137,7 +135,7 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
 	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
-	return float4(saturate(Out),1.0);
+	return float4(Out,1.0);
 }
 
 // Physically accurate lighting, uses Srgb2Photon.fx
@@ -155,6 +153,12 @@ struct SRGBPOST_PIN
 	float2 tex : TEXCOORD0;
 };
 
+struct SRGBPOST_POUT
+{
+	float4 Color : SV_TARGET0;
+	float4 Luminosity : SV_TARGET1;
+};
+
 SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 {
 	SRGBPOST_PIN Out;
@@ -165,7 +169,14 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 
 float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
-	float4 Color = saturate(RT.Sample(Sampler, In.tex));
-	Color.xyz = photon2srgb(Color.xyz);
-	return Color;
+	float4 Out = RT.Sample(Sampler, In.tex);
+	Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
+	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
+}
+
+float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
+{
+	float4 Out = RT.Sample(Sampler, In.tex);
+	float lum = log(dot(Out.xyz,float3(0.27,0.67,0.06)));
+	return float4(float3(1.0,1.0,1.0) * lum,1.0);
 }

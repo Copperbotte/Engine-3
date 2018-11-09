@@ -30,11 +30,12 @@ struct PIn
 {
 	float4 Pos : SV_POSITION;
 	float3 Norm : NORMAL0;
-	//float2 tex : TEXCOORD0; // Reserved for future texture coodinates
+	float3 Tan : TANGENT0;
+	float3 Bin : BINORMAL0;
+	float2 Tex : TEXCOORD0;
 	float4 wPos : TEXCOORD1;
-	float3 sPos : TEXCOORD2;
-	float3 vPos : TEXCOORD3;
 };
+
 
 float4 PS(PIn In) : SV_TARGET
 {
