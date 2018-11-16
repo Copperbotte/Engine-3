@@ -55,6 +55,7 @@ ID3D11SamplerState *TextureSampler;
 
 //Textures
 TextureData Mat;
+TextureData ProjTexture;
 
 inline void Draw(MODELID Model);
 
@@ -62,6 +63,9 @@ struct
 { // 16 BYTE intervals
 	XMMATRIX World;
 	XMMATRIX ViewProj;
+	XMFLOAT4 Screen2WorldU; // Should be a 4x2
+	XMFLOAT4 Screen2WorldV;
+	XMFLOAT4 Screen2WorldOrigin;
 	XMMATRIX Screen2World;
 	XMFLOAT4 TextureRanges[14];
 	unsigned int LightNum;
@@ -154,7 +158,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	// Scary to have this before the swap chain set
 	// Depth buffer
-	D3D11_TEXTURE2D_DESC RTDesc, dsd;
+	D3D11_TEXTURE2D_DESC RTDesc, dsd, HDRDesc;
 	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
 	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
 	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
@@ -163,7 +167,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTDesc.Width = WINWIDTH;
 	RTDesc.Height = WINHEIGHT;
 	RTDesc.MipLevels = (int)ceil(log((double)WINWIDTH)/log(2.0));
-	RTDesc.ArraySize = 1;
+	RTDesc.ArraySize = 7; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
 	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	RTDesc.SampleDesc.Count = 1;
 	RTDesc.SampleDesc.Quality = 0;
@@ -184,11 +188,15 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
 
+	HDRDesc = RTDesc;
+	RTDesc.MipLevels = 0;
+	HDRDesc.ArraySize = 1;
+
 	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
 	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
 	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
 
-	d3ddev->CreateTexture2D(&RTDesc, NULL, &HDRtex);
+	d3ddev->CreateTexture2D(&HDRDesc, NULL, &HDRtex);
 	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
 	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
 
@@ -196,7 +204,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	SAFE_RELEASE(RTtex);
 	//SAFE_RELEASE(HDRtex);
 
-	dsd = RTDesc;
+	dsd = HDRDesc;
 	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	dsd.Usage = D3D11_USAGE_DEFAULT;
 	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -460,8 +468,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
+		float rotation = 0.0; // 0 for standard view, 0.5 for cool view
+		float height = sin(rotation * 3.141592); height *= 0.4*height;
 		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
-		XMMATRIX View = XMMatrixTranslation(0.0f,0.0f,-5.0f);
+		XMMATRIX View = XMMatrixRotationX(rotation*3.14159285/2.0)*XMMatrixTranslation(0.0f,height,-5.0f);
 		XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*viewport.Height/viewport.Width,1.0f,1000.0f);
 
 		if(Key(VK_SPACE))
@@ -470,7 +480,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		XMFLOAT3 Colors[6] = 
 		{
 			XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
-			XMFLOAT3(100.0,100.0,0.0),
+			XMFLOAT3(1.0,1.0,0.0),
 			XMFLOAT3(0.0,1.0,0.0),
 			XMFLOAT3(0.0,1.0,1.0),
 			XMFLOAT3(0.0,0.0,1.0),
@@ -484,11 +494,22 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			LightBuffer.Lights[i].Color = Colors[i];
 			float dtheta = 3.141592 * 2.0*((float)i)/6.0;
 			LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.0,2.0f*cos(theta+dtheta));
+			//LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.5f*sin(theta+dtheta),2.0f*cos(theta+dtheta));
 		}
 		
 		ConstantBuffer.World = World;
 		ConstantBuffer.ViewProj = View*Proj;
 		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
+		XMVECTOR sOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),ConstantBuffer.Screen2World);
+		XMVECTOR sVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),ConstantBuffer.Screen2World);
+		XMVECTOR sVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,-1.0,0.0,1.0)),ConstantBuffer.Screen2World);
+		sVecU -= sOrigin;
+		sVecV -= sOrigin;
+		
+		XMStoreFloat4(&ConstantBuffer.Screen2WorldOrigin,sOrigin);
+		XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
+		XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
+		
 		ConstantBuffer.UVScale = XMFLOAT2(1.0,1.0);
 
 		////////////////////////////////////////////////////////////////////////

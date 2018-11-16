@@ -6,6 +6,9 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
 	float4x4 World;
 	float4x4 ViewProj;
+	float4 Screen2WorldU; // Should be a 4x2
+	float4 Screen2WorldV;
+	float4 Screen2WorldOrigin;
 	float4x4 Screen2World;
 	float4 TextureRanges[14];
 	uint LightNum;
@@ -85,6 +88,9 @@ struct material
 	//float3 Fresnel;
 };
 
+// The Pi terms in the diffuse and specular terms are normalizing terms, calculated by dividing by the double integral of all views at the maximum light intensity, which is usually vertical.
+// Diffuse = Pi, Specular = 2pi /  (Power+2)
+// This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
 float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 {
 	const float PI = 3.141592;
@@ -110,24 +116,28 @@ float4 PS(PIn In) : SV_TARGET
 	
 	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
-	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
+	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
+	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos).xyz + Screen2WorldOrigin.xyz;
 	float3 View = normalize(vPos - In.wPos.xyz);
 	
-	float3x3 Tangentspace = float3x3(normalize(In.Tan), 
-									 normalize(In.Bin),
-									 normalize(In.Norm));
-	View = mul(Tangentspace, View);
+	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), 
+									 In.Bin,	//normalize(In.Bin),
+									 In.Norm);	//normalize(In.Norm));
+	View = normalize(mul(Tangentspace, View));
+	
+	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
+	//Mat.Reflectivity = Mat.Albedo;
+	//Mat.Power = 569;
+	//Normal = float3(0,0,1);
 	
 	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
-	
-	//Out *= 0;
 	
 	for(uint i=0;i<LightNum;++i)
 	{
 		float3 lite = Lights[i].Position - In.wPos.xyz;
 		float bright = 1.0 / dot(lite, lite);
-		lite = mul(Tangentspace, normalize(lite));
+		lite = normalize(mul(Tangentspace, normalize(lite)));
 		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 	}
 
@@ -170,7 +180,8 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
 	float4 Out = RT.Sample(Sampler, In.tex);
-	Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
+	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
+	//Out.xyz /= Out.xyz + 1.0;
 	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
 }
 
