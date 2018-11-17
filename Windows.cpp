@@ -34,10 +34,10 @@ ID3D11RasterizerState *DisplayRaster;
 ID3D11BlendState *Blenda;
 
 //Render target
-ID3D11RenderTargetView *RTbuffer;
-ID3D11ShaderResourceView *RTres;
+ID3D11RenderTargetView *RTbuffer, *Gbuffer[8];
+ID3D11ShaderResourceView *RTres, *Gres[8];
 ID3D11VertexShader *RTvs;
-ID3D11PixelShader *RTps;
+ID3D11PixelShader *RTps, *Gps;
 
 //hdr
 ID3D11RenderTargetView *HDRbuffer;
@@ -159,22 +159,22 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	// Scary to have this before the swap chain set
 	// Depth buffer
 	D3D11_TEXTURE2D_DESC RTDesc, dsd, HDRDesc;
-	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
-	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
+	D3D11_RENDER_TARGET_VIEW_DESC RTVD, HDRVD;
+	D3D11_SHADER_RESOURCE_VIEW_DESC svd, HDRsvd;
 	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
 	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
 	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
 	RTDesc.Width = WINWIDTH;
 	RTDesc.Height = WINHEIGHT;
 	RTDesc.MipLevels = (int)ceil(log((double)WINWIDTH)/log(2.0));
-	RTDesc.ArraySize = 7; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
+	RTDesc.ArraySize = 8; // Alb, Ref, Pow, wPos, Norm, Tanspace Matrix(3) = 8
 	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	RTDesc.SampleDesc.Count = 1;
 	RTDesc.SampleDesc.Quality = 0;
 	RTDesc.Usage = D3D11_USAGE_DEFAULT;
 	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 	RTDesc.CPUAccessFlags = 0;
-	RTDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	RTDesc.MiscFlags = 0;
 	RTVD.Format = RTDesc.Format;
 	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 	RTVD.Texture2D.MipSlice = 0;
@@ -184,24 +184,38 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	svd.Texture2D.MipLevels = RTDesc.MipLevels;
 
 	// Temporary textures to set the render target to the backbuffer and RTbuffer
-	ID3D11Texture2D *backbuffertex, *RTtex;
+	ID3D11Texture2D *backbuffertex, *RTtex, *Gtex[8];
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
 
 	HDRDesc = RTDesc;
+	HDRVD = RTVD;
+	HDRsvd = svd;
 	RTDesc.MipLevels = 0;
 	HDRDesc.ArraySize = 1;
+	HDRDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	HDRVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	HDRsvd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 
 	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
 	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
 	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
 
+	for(unsigned int n=0;n<8;++n)
+	{
+		d3ddev->CreateTexture2D(&RTDesc, NULL, Gtex + n);
+		d3ddev->CreateRenderTargetView(Gtex[n],&RTVD,Gbuffer + n);
+		d3ddev->CreateShaderResourceView(Gtex[n],&svd,Gres + n);
+	}
+
 	d3ddev->CreateTexture2D(&HDRDesc, NULL, &HDRtex);
-	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
-	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
+	d3ddev->CreateRenderTargetView(HDRtex,&HDRVD,&HDRbuffer);
+	d3ddev->CreateShaderResourceView(HDRtex,&HDRsvd,&HDRres);
 
 	SAFE_RELEASE(backbuffertex);
 	SAFE_RELEASE(RTtex);
+	for(unsigned int n=0;n<8;++n)
+		SAFE_RELEASE(Gtex[n]);
 	//SAFE_RELEASE(HDRtex);
 
 	dsd = HDRDesc;
@@ -282,6 +296,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
 	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
 
+	Gps = LoadPixelShader(L"SimpleShader.fx", "GBUFFER_PS", "ps_5_0", false);
 	HDRps = LoadPixelShader(L"SimpleShader.fx", "HDR_LUMEN_PS", "ps_5_0", false);
 
 	devcon->VSSetShader(vs, 0, 0);
@@ -518,10 +533,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 
 		//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
-		float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f};
-		devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
+		float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,-1.0f}; // Set transparency to -1 to mark as background
+		devcon->ClearRenderTargetView(Gbuffer[0], backgroundcolor);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
+		devcon->OMSetRenderTargets(8, Gbuffer, zbuffer);
 		devcon->VSSetShader(vs, 0, 0);
 		devcon->PSSetShader(ps, 0, 0);
 
@@ -561,17 +576,24 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		/////////////////////////////// Postprocess ////////////////////////////
 		////////////////////////////////////////////////////////////////////////
 
-		//Convert linear image to log luminosity
-		devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
+		//Render image from gbuffer data
+		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		devcon->VSSetShader(RTvs, 0, 0);
 		devcon->HSSetShader(NULL, 0, 0);
 		devcon->DSSetShader(NULL, 0, 0);
 		devcon->GSSetShader(NULL, 0, 0);
-		devcon->PSSetShader(HDRps, 0, 0);
-		devcon->PSSetShaderResources(0, 1, &RTres); // Pull from render target
+		devcon->PSSetShader(Gps, 0, 0);
+		devcon->PSSetShaderResources(0, 8, Gres); // Pull from GBuffers
 		devcon->RSSetState(DisplayRaster);
 		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		Draw(Screenmodel);
+
+		//Convert linear image to log luminosity
+		devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
+		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		devcon->PSSetShader(HDRps, 0, 0);
+		devcon->PSSetShaderResources(0, 1, &RTres); // Pull from render target
 		Draw(Screenmodel);
 
 		devcon->GenerateMips(HDRres);
@@ -580,14 +602,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		ID3D11ShaderResourceView *Resources[2] = {RTres, HDRres};
 		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		devcon->VSSetShader(RTvs, 0, 0);
-		devcon->HSSetShader(NULL, 0, 0);
-		devcon->DSSetShader(NULL, 0, 0);
-		devcon->GSSetShader(NULL, 0, 0);
 		devcon->PSSetShader(RTps, 0, 0);
 		devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
-		devcon->RSSetState(DisplayRaster);
-		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		Draw(Screenmodel);
 
 		swapchain->Present(0, 0);
@@ -615,11 +631,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	SAFE_RELEASE(Lightshader);
 
+	for(unsigned int i=0;i<8;++i)
+	{
+		SAFE_RELEASE(Gbuffer[i]);
+		SAFE_RELEASE(Gres[i]);
+	}
 	SAFE_RELEASE(RTbuffer);
-	SAFE_RELEASE(RTtex);
 	SAFE_RELEASE(RTres);
 	SAFE_RELEASE(RTvs);
 	SAFE_RELEASE(RTps);
+	SAFE_RELEASE(Gps);
 
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);

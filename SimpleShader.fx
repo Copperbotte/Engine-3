@@ -80,72 +80,30 @@ PIn VS(VIn In)
 	return Out;	
 }
 
-struct material
+struct GBuffer
 {
-	float3 Albedo;
-	float3 Reflectivity;
-	float3 Power;
-	//float3 Fresnel;
+	float4 Albedo : SV_TARGET0;
+	float4 Reflectivity : SV_TARGET1;
+	float4 Power : SV_TARGET2;
+	float4 wPos : SV_TARGET3;
+	float4 NMap : SV_TARGET4;
+	float4 Tangent : SV_TARGET5;
+	float4 Binormal : SV_TARGET6;
+	float4 Normal : SV_TARGET7;
 };
 
-// The Pi terms in the diffuse and specular terms are normalizing terms, calculated by dividing by the double integral of all views at the maximum light intensity, which is usually vertical.
-// Diffuse = Pi, Specular = 2pi /  (Power+2)
-// This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
-float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
+GBuffer PS(PIn In)
 {
-	const float PI = 3.141592;
-	const float E = 2.718282;
-	
-	float Diffuse = dot(NormalVec,LightVec);
-	if(Diffuse < 0)	return float3(0,0,0);
-	
-	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
-	float3 Specular = pow(max(0.0f,dot(ViewVec,ReflVec)),Mat.Power);
-
-	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
-	Out += Mat.Reflectivity * Specular * (Mat.Power + 2.0)/(2.0  * PI); // Specular
+	GBuffer Out;
+	Out.Albedo = float4(SampleTexture(0,In.Tex),1.0);
+	Out.NMap = float4(SampleTexture(1,In.Tex),1.0);
+	Out.Reflectivity = float4(SampleTexture(2,In.Tex),1.0);
+	Out.Power = float4(SampleTexture(3,In.Tex),1.0);
+	Out.wPos = In.wPos;
+	Out.Tangent = float4(In.Tan,1.0);
+	Out.Binormal = float4(In.Bin,1.0);
+	Out.Normal = float4(In.Norm,1.0);
 	return Out;
-}
-
-float4 PS(PIn In) : SV_TARGET
-{
-	material Mat;
-	Mat.Albedo = SampleTexture(0,In.Tex);
-	Mat.Reflectivity = SampleTexture(2,In.Tex);
-	Mat.Power = SampleTexture(3,In.Tex);
-	
-	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
-	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
-	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos).xyz + Screen2WorldOrigin.xyz;
-	float3 View = normalize(vPos - In.wPos.xyz);
-	
-	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), 
-									 In.Bin,	//normalize(In.Bin),
-									 In.Norm);	//normalize(In.Norm));
-	View = normalize(mul(Tangentspace, View));
-	
-	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
-	//Mat.Reflectivity = Mat.Albedo;
-	//Mat.Power = 569;
-	//Normal = float3(0,0,1);
-	
-	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
-	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
-	
-	for(uint i=0;i<LightNum;++i)
-	{
-		float3 lite = Lights[i].Position - In.wPos.xyz;
-		float bright = 1.0 / dot(lite, lite);
-		lite = normalize(mul(Tangentspace, normalize(lite)));
-		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
-	}
-
-	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
-	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
-	
-	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
-	return float4(Out,1.0);
 }
 
 // Physically accurate lighting, uses Srgb2Photon.fx
@@ -177,9 +135,92 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 	return Out;
 }
 
+float3 SampleGbuffer(uint n, float2 UV)
+{
+	if(n==0) return RT.Sample(Sampler, UV).rgb;
+	n--;
+	return surface[n].Sample(Sampler, UV).rgb;
+}
+
+struct material
+{
+	float3 Albedo;
+	float3 Reflectivity;
+	float3 Power;
+	//float3 Fresnel;
+};
+
+// The Pi terms in the diffuse and specular terms are normalizing terms, calculated by dividing by the double integral of all views at the maximum light intensity, which is usually vertical.
+// Diffuse = Pi, Specular = 2pi /  (Power+2)
+// This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
+float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
+{
+	const float PI = 3.141592;
+	const float E = 2.718282;
+	
+	float Diffuse = dot(NormalVec,LightVec);
+	if(Diffuse < 0)	return float3(0,0,0);
+	
+	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
+	float3 Specular = pow(max(0.0f,dot(ViewVec,ReflVec)),Mat.Power);
+
+	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
+	Out += Mat.Reflectivity * Specular * (Mat.Power + 2.0)/(2.0  * PI); // Specular
+	return Out;
+}
+
+float4 GBUFFER_PS(SRGBPOST_PIN In) : SV_TARGET
+{
+	material Mat;
+	
+	float4 Alb = RT.Sample(Sampler, In.tex);
+	if(Alb.a < 0.0)
+		return float4(srgb2photon(float3(0.0,0.5,1.0)) * 0.1,1.0);
+	
+	Mat.Albedo = Alb.rgb;//SampleGbuffer(0, In.tex);
+	Mat.Reflectivity = SampleGbuffer(1,In.tex);
+	Mat.Power = SampleGbuffer(2,In.tex);
+	
+	float3 wPos = SampleGbuffer(3,In.tex);
+	float3 Normal = normalize(SampleGbuffer(4,In.tex)); //Stubborn, lies in Tangentspace
+	float3x3 Tangentspace = float3x3(SampleGbuffer(5,In.tex),	//normalize(In.Tan), 
+									 SampleGbuffer(6,In.tex),	//normalize(In.Bin),
+									 SampleGbuffer(7,In.tex));	//normalize(In.Norm));
+	
+	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
+	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
+	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos).xyz + Screen2WorldOrigin.xyz;
+	float3 View = normalize(vPos - wPos);
+	
+	View = normalize(mul(Tangentspace, View));
+	
+	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
+	//Mat.Reflectivity = Mat.Albedo;
+	//Mat.Power = 569;
+	//Normal = float3(0,0,1);
+	
+	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
+	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
+	
+	for(uint i=0;i<LightNum;++i)
+	{
+		float3 lite = Lights[i].Position - wPos;
+		float bright = 1.0 / dot(lite, lite);
+		lite = normalize(mul(Tangentspace, normalize(lite)));
+		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
+	}
+
+	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
+	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
+	
+	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
+
+	return float4(Out,1.0);
+}
+
 float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
-	float4 Out = RT.Sample(Sampler, In.tex);
+	float4 Out = RT.SampleLevel(Sampler, In.tex, 0);
 	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
 	//Out.xyz /= Out.xyz + 1.0;
 	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
