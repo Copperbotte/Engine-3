@@ -21,7 +21,6 @@ ID3D11Device *d3ddev;
 ID3D11DeviceContext *devcon;
 ID3D11RenderTargetView *backbuffer;
 ID3D11DepthStencilView *zbuffer;
-ID3D11Texture2D *zbuffertex;
 
 //Models
 ID3D10Blob *layoutblob;
@@ -41,10 +40,18 @@ ID3D11PixelShader *RTps;
 
 //hdr
 ID3D11RenderTargetView *HDRbuffer;
-ID3D11Texture2D *HDRtex;
+ID3D11Texture2D *HDRtex; // needed for mip generation
 ID3D11ShaderResourceView *HDRres;
 ID3D11SamplerState *HDRsampler;
 ID3D11PixelShader *HDRps;
+
+//projected texture
+ID3D11RenderTargetView *PTbuffer[2]; // position, UVcoords taken from depth buffer
+ID3D11ShaderResourceView *PTres[2];
+ID3D11DepthStencilView *PTzbuffer;
+ID3D11ShaderResourceView *PTemissive;
+ID3D11VertexShader *PTvs;
+ID3D11PixelShader *PTps;
 
 //Shaders
 ID3D11VertexShader *vs;
@@ -55,7 +62,6 @@ ID3D11SamplerState *TextureSampler;
 
 //Textures
 TextureData Mat;
-TextureData ProjTexture;
 
 inline void Draw(MODELID Model);
 
@@ -66,7 +72,10 @@ struct
 	XMFLOAT4 Screen2WorldU; // Should be a 4x2
 	XMFLOAT4 Screen2WorldV;
 	XMFLOAT4 Screen2WorldOrigin;
-	XMMATRIX Screen2World;
+	XMMATRIX PTViewProj;
+	XMFLOAT4 PTS2WU; // same as screen 2 world
+	XMFLOAT4 PTS2WV;
+	XMFLOAT4 PTS2WO;
 	XMFLOAT4 TextureRanges[14];
 	unsigned int LightNum;
 	unsigned int SelectedLight;
@@ -167,7 +176,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTDesc.Width = WINWIDTH;
 	RTDesc.Height = WINHEIGHT;
 	RTDesc.MipLevels = (int)ceil(log((double)WINWIDTH)/log(2.0));
-	RTDesc.ArraySize = 7; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
+	RTDesc.ArraySize = 1; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
 	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	RTDesc.SampleDesc.Count = 1;
 	RTDesc.SampleDesc.Quality = 0;
@@ -184,13 +193,19 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	svd.Texture2D.MipLevels = RTDesc.MipLevels;
 
 	// Temporary textures to set the render target to the backbuffer and RTbuffer
-	ID3D11Texture2D *backbuffertex, *RTtex;
+	ID3D11Texture2D *backbuffertex, *RTtex, *zbuffertex;
 	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
 	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
 
 	HDRDesc = RTDesc;
 	RTDesc.MipLevels = 0;
 	HDRDesc.ArraySize = 1;
+
+	dsd = HDRDesc;
+	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsd.Usage = D3D11_USAGE_DEFAULT;
+	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	dsd.MiscFlags = 0;
 
 	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
 	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
@@ -200,23 +215,14 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
 	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
 
-	SAFE_RELEASE(backbuffertex);
-	SAFE_RELEASE(RTtex);
-	//SAFE_RELEASE(HDRtex);
-
-	dsd = HDRDesc;
-	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	dsd.Usage = D3D11_USAGE_DEFAULT;
-	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-	dsd.MiscFlags = 0;
-
-	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
-	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
-
 	devcon->OMSetRenderTargets(1, &backbuffer, nullptr); // required
 	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
 	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
 	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
+
+	SAFE_RELEASE(backbuffertex);
+	SAFE_RELEASE(RTtex);
+	SAFE_RELEASE(zbuffertex);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -311,10 +317,13 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	devcon->PSSetSamplers(0, 1, &TextureSampler);
 	devcon->VSSetSamplers(0, 1, &TextureSampler);
 
-
-	////////////////////////////////////////////////////////////////////////////
-	///////////////////////////// More initialization //////////////////////////
-	////////////////////////////////////////////////////////////////////////////
+	HRESULT PTError = S_OK;
+	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);
+	if(PTError == D3D11_ERROR_FILE_NOT_FOUND)
+	{
+		MessageBox(NULL, L"Projected texture not found", L"error", MB_OK | MB_ICONERROR);
+		SAFE_RELEASE(PTemissive);
+	}
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
@@ -335,10 +344,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	{	// Position     UVW             Normal          Tangent(U)      Binormal(V)
 		// Plane
 		// Indices 0 & 1
-	   -1.0,-1.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  
-	   -1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
-		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0, 
-		1.0,-1.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  
+	   -1.0,-1.0, 0.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
+	   -1.0, 1.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0, 
+		1.0, 1.0, 0.0,  1.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0, 
+		1.0,-1.0, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0,  0.0,-1.0, 0.0,  
 	   
 
 		// Cube
@@ -468,7 +477,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float rotation = 0.0; // 0 for standard view, 0.5 for cool view
+		float rotation = 0.5; // 0 for standard view, 0.5 for cool view
 		float height = sin(rotation * 3.141592); height *= 0.4*height;
 		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixRotationX(rotation*3.14159285/2.0)*XMMatrixTranslation(0.0f,height,-5.0f);
@@ -493,24 +502,41 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		{
 			LightBuffer.Lights[i].Color = Colors[i];
 			float dtheta = 3.141592 * 2.0*((float)i)/6.0;
-			LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.0,2.0f*cos(theta+dtheta));
+			float rad = 2.0f; //0.5f;
+			float hai = 0.0f; //2.0f;
+			LightBuffer.Lights[i].Position = XMFLOAT3(rad*sin(theta+dtheta),hai,rad*cos(theta+dtheta));
 			//LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.5f*sin(theta+dtheta),2.0f*cos(theta+dtheta));
 		}
 		
+		ConstantBuffer.UVScale = XMFLOAT2(1.0,1.0);
+
 		ConstantBuffer.World = World;
 		ConstantBuffer.ViewProj = View*Proj;
-		ConstantBuffer.Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
-		XMVECTOR sOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),ConstantBuffer.Screen2World);
-		XMVECTOR sVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),ConstantBuffer.Screen2World);
-		XMVECTOR sVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,-1.0,0.0,1.0)),ConstantBuffer.Screen2World);
+
+		XMMATRIX Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
+		XMVECTOR sOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),Screen2World);
+		XMVECTOR sVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),Screen2World);
+		XMVECTOR sVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,-1.0,0.0,1.0)),Screen2World);
 		sVecU -= sOrigin;
 		sVecV -= sOrigin;
-		
+
 		XMStoreFloat4(&ConstantBuffer.Screen2WorldOrigin,sOrigin);
 		XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
 		XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
 		
-		ConstantBuffer.UVScale = XMFLOAT2(1.0,1.0);
+		ConstantBuffer.PTViewProj = XMMatrixTranslation(0,3,0)*XMMatrixRotationX(3.141592/4.0);
+		ConstantBuffer.PTViewProj *= XMMatrixPerspectiveRH(1.0,1.0,1.0,10.0); // simple camera frustrum
+		
+		XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
+		XMVECTOR PTOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),PTS2W);
+		XMVECTOR PTVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),PTS2W);
+		XMVECTOR PTVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,-1.0,0.0,1.0)),PTS2W);
+		PTVecU -= PTOrigin;
+		PTVecV -= PTOrigin;
+
+		XMStoreFloat4(&ConstantBuffer.PTS2WO,PTOrigin);
+		XMStoreFloat4(&ConstantBuffer.PTS2WU,PTVecU);
+		XMStoreFloat4(&ConstantBuffer.PTS2WV,PTVecV);
 
 		////////////////////////////////////////////////////////////////////////
 		//////////////////////////////////// Render ////////////////////////////
@@ -526,6 +552,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		devcon->PSSetShader(ps, 0, 0);
 
 		devcon->PSSetShaderResources(1, 7, Mat.Textures);
+		devcon->PSSetShaderResources(8, 1, &PTemissive);
 
 		devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 		devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
@@ -604,10 +631,11 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	for(unsigned int i=0;i<2;i++)
 		SAFE_RELEASE(cbuffer[i]);
 
+	SAFE_RELEASE(PTemissive);
+
 	SAFE_RELEASE(HDRps);
 	SAFE_RELEASE(HDRbuffer);
 	SAFE_RELEASE(HDRres);
-	//SAFE_RELEASE(HDRsampler);
 	SAFE_RELEASE(HDRtex);
 
 	SAFE_RELEASE(vs);
@@ -630,7 +658,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	SAFE_RELEASE(Blenda);
 
 	SAFE_RELEASE(zbuffer);
-	SAFE_RELEASE(zbuffertex);
 	SAFE_RELEASE(backbuffer);
 	SAFE_RELEASE(swapchain);
 	SAFE_RELEASE(devcon);

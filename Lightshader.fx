@@ -9,7 +9,11 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4 Screen2WorldU; // Should be a 4x2
 	float4 Screen2WorldV;
 	float4 Screen2WorldOrigin;
-	float4x4 Screen2World;
+	//float4x4 Screen2World;
+	float4x4 PTViewProj;
+	float4 PTS2WU; // same as screen 2 world
+	float4 PTS2WV;
+	float4 PTS2WO;
 	float4 TextureRanges[14];
 	uint LightNum;
 	uint SelectedLight;
@@ -42,9 +46,5 @@ struct PIn
 
 float4 PS(PIn In) : SV_TARGET
 {
-	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720));
-	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	float3 View = normalize(vPos - In.wPos.xyz);
-	
 	return float4(Lights[SelectedLight].Color,1.0);
 }

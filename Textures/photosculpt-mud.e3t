@@ -3,6 +3,8 @@ src "photosculpt-mud-diffuse.jpg"
 range 0 1
 
 Normal
+COMMENT src "fancy_chair.png"
+COMMENT src "Particool Normal.png"
 src "photosculpt-mud-normal.jpg"
 range -1 1
 
