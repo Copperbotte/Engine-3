@@ -147,23 +147,19 @@ float4 PS(PIn In) : SV_TARGET
 		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 	}
 
-	/*
+	
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(float2(-1.0,-1.0) <= PTscreen.xy) & all(PTscreen.xy <= float2(1.0,1.0));
 	if(frustrum)
 	{
-		//return float4(1,1,1,1);
-		float4 sam = PT.Sample(Sampler, PTscreen.xy);
+		float4 sam = PT.Sample(Sampler, (-PTscreen.xy + 1.0)/2.0);
 		float3 PT_vPos = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
-		PT_vPos = normalize(mul(Tangentspace, PT_vPos));
-		//float PT_bright = 1.0 / PTscreen.w;
+		float PT_bright = -1.0 / PTscreen.w;
 		float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
-		//return float4(PT_vPos, 1.0);
-		//Out += float3(1,1,1)*0.5*saturate(dot(PT_lite, Normal));
-		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb;// * sam.a;
+		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 	}
-	*/
+	
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	

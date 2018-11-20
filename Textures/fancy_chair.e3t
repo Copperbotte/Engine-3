@@ -1,0 +1,35 @@
+COMMENT this was the debug texture during development
+COMMENT 214 is the srgb representation of 172, which is the closest average value of photosculpt mud
+COMMENT it also ends up being very close to the specular so its used twice
+COMMENT specular however is not converted from srgb, so it must be converted here with the weird decimal
+COMMENT 569 specular is also an approximation, it was about the same size as the light objects at an older view.
+
+Albedo
+src "214gray.png"
+range 0 1
+
+Normal
+COMMENT src "fancy_chair.png"
+src "Particool Normal.png"
+range -1 1
+COMMENT range -0.1 0.1 -0.1 0.1 -1 1
+
+Reflectivity
+src "214gray.png"
+range 0 0.80373831775700934579439252336449
+
+Specular
+src "214gray.png"
+range 569 569
+
+Transparency
+src "214gray.png"
+range 1 1
+
+Emission
+src "214gray.png"
+range 0 0
+
+Height
+src "214gray.png"
+range 0 0

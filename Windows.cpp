@@ -305,7 +305,16 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	//texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	//HDRsampler = CreateSampler(&texdesk);
 
-	Mat = LoadTextureSet(L"Textures/photosculpt-mud.e3t");//MetalTile.e3t");//gimmick.e3t");//Portal.e3t");//
+	wchar_t *texlocations[] = 
+	{
+		L"Textures/photosculpt-mud.e3t",
+		L"Textures/MetalTile.e3t",
+		L"Textures/Portal.e3t",
+		L"Textures/gimmick.e3t",
+		L"Textures/fancy_chair.e3t"
+	};
+
+	Mat = LoadTextureSet(texlocations[4]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -524,7 +533,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
 		XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
 		
-		ConstantBuffer.PTViewProj = XMMatrixTranslation(0,3,0)*XMMatrixRotationX(3.141592/4.0);
+		ConstantBuffer.PTViewProj = XMMatrixTranslation(0,-1.5,0)*XMMatrixRotationX(-3.141592/2.0);
 		ConstantBuffer.PTViewProj *= XMMatrixPerspectiveRH(1.0,1.0,1.0,10.0); // simple camera frustrum
 		
 		XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
