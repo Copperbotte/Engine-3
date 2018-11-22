@@ -135,6 +135,7 @@ float4 PS(PIn In) : SV_TARGET
 	//Mat.Power = 569;
 	//Normal.xy *= 0.1;
 	//Normal = normalize(Normal);
+	Normal = float3(0,0,1);
 	
 	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
@@ -147,7 +148,7 @@ float4 PS(PIn In) : SV_TARGET
 		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 	}
 
-	
+	/*
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(float2(-1.0,-1.0) <= PTscreen.xy) & all(PTscreen.xy <= float2(1.0,1.0));
@@ -159,7 +160,7 @@ float4 PS(PIn In) : SV_TARGET
 		float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
 		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 	}
-	
+	*/
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
@@ -201,7 +202,10 @@ float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 	float4 Out = RT.Sample(Sampler, In.tex);
 	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
 	//Out.xyz /= Out.xyz + 1.0;
-	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
+	uint3 Fin = 255.0 * photon2srgb(Out.xyz) + 0.5;
+	float3 diff = Out.rgb - srgb2photon((float3)(Fin) / 255.0);
+	return float4(saturate(diff+0.5),Out.a);
+	return float4(saturate(diff*diff*1000000.0),Out.a);
 }
 
 float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
