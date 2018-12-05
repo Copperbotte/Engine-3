@@ -112,6 +112,14 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 	return Out;
 }
 
+float3 Transmit(float3 StartColor, float3 FogColor, float3 Transparency, float dist)
+{
+	const float PI = 3.141592;
+	const float E = 2.718282;
+
+	return FogColor + (StartColor - FogColor)*exp(-dist*Transparency);
+}
+
 float4 PS(PIn In) : SV_TARGET
 {
 	material Mat;
@@ -123,12 +131,14 @@ float4 PS(PIn In) : SV_TARGET
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
-	float3 View = normalize(vPos - In.wPos.xyz);
+	float3 View = vPos - In.wPos.xyz;
+	
+	float Viewdist = sqrt(dot(View, View));
 	
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), 
 									 In.Bin,	//normalize(In.Bin),
 									 In.Norm);	//normalize(In.Norm));
-	View = normalize(mul(Tangentspace, View));
+	View = normalize(mul(Tangentspace, normalize(View)));
 	
 	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
 	//Mat.Reflectivity = Mat.Albedo;
@@ -136,18 +146,26 @@ float4 PS(PIn In) : SV_TARGET
 	//Normal.xy *= 0.1;
 	//Normal = normalize(Normal);
 	
-	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
+	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
+	float3 FogColor = srgb2photon(float3(0.5,0.75,1.0));
+	float3 FogTransparancy = 1;//float3(1,0.5,0.1);
+	
+	FogColor = Ambient;
+	
+	float3 Out = Ambient;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
 	
 	for(uint i=0;i<LightNum;++i)
 	{
 		float3 lite = Lights[i].Position - In.wPos.xyz;
+		float dist = sqrt(dot(lite, lite));
 		float bright = 1.0 / dot(lite, lite);
 		lite = normalize(mul(Tangentspace, normalize(lite)));
-		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
+		float3 emit = Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
+		Out += Transmit(emit, FogColor, FogTransparancy, dist);
 	}
 
-	
+	/*
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(float2(-1.0,-1.0) <= PTscreen.xy) & all(PTscreen.xy <= float2(1.0,1.0));
@@ -159,6 +177,9 @@ float4 PS(PIn In) : SV_TARGET
 		float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
 		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 	}
+	*/
+	
+	Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
 	
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color

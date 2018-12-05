@@ -9,8 +9,8 @@ src "214gray.png"
 range 0 1
 
 Normal
-COMMENT src "fancy_chair.png"
-src "Particool Normal.png"
+src "fancy_chair.png"
+COMMENT src "Particool Normal.png"
 range -1 1
 COMMENT range -0.1 0.1 -0.1 0.1 -1 1
 

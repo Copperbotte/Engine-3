@@ -314,7 +314,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		L"Textures/fancy_chair.e3t"
 	};
 
-	Mat = LoadTextureSet(texlocations[4]);
+	Mat = LoadTextureSet(texlocations[0]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -486,7 +486,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		CurTime = GetTickCount();
 		float Time = ((float)(CurTime - InitTime)) / 1000.0f;
 
-		float rotation = 0.5; // 0 for standard view, 0.5 for cool view
+		float rotation = 0.0; // 0 for standard view, 0.5 for cool view
 		float height = sin(rotation * 3.141592); height *= 0.4*height;
 		XMMATRIX World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
 		XMMATRIX View = XMMatrixRotationX(rotation*3.14159285/2.0)*XMMatrixTranslation(0.0f,height,-5.0f);
