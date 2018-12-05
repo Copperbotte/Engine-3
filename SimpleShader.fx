@@ -135,7 +135,7 @@ float4 PS(PIn In) : SV_TARGET
 	//Mat.Power = 569;
 	//Normal.xy *= 0.1;
 	//Normal = normalize(Normal);
-	Normal = float3(0,0,1);
+	//Normal = float3(0,0,1);
 	
 	float3 Out = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
@@ -147,7 +147,10 @@ float4 PS(PIn In) : SV_TARGET
 		lite = normalize(mul(Tangentspace, normalize(lite)));
 		Out += Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 	}
-
+	
+	//float3 sun = normalize(mul(Tangentspace, float3(1.0,1.0,1.0)));
+	//Out += Light(sun, Normal, View, Mat) * 3.141592;
+	
 	/*
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
@@ -204,8 +207,8 @@ float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 	//Out.xyz /= Out.xyz + 1.0;
 	uint3 Fin = 255.0 * photon2srgb(Out.xyz) + 0.5;
 	float3 diff = Out.rgb - srgb2photon((float3)(Fin) / 255.0);
-	return float4(saturate(diff+0.5),Out.a);
-	return float4(saturate(diff*diff*1000000.0),Out.a);
+	//Out.rgb = diff*255.0;
+	return float4(photon2srgb(saturate(Out.rgb)),Out.a);
 }
 
 float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET

@@ -547,6 +547,32 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		XMStoreFloat4(&ConstantBuffer.PTS2WU,PTVecU);
 		XMStoreFloat4(&ConstantBuffer.PTS2WV,PTVecV);
 
+
+
+		float omega = Time/3.141592;
+		float theta_arm = 0;
+		float psi = 0;
+		float zeta = 0;
+		float lambda = 0;
+
+		float armpos = -1.0;
+		float humlen = 1.0;
+		float forlen = 0.5;
+		float spinlen = 0.1;
+
+		XMMATRIX workworld = XMMatrixRotationY(omega);
+		XMMATRIX armworld = XMMatrixTranslation(armpos,0,0);
+		XMMATRIX thetamat = XMMatrixRotationY(theta_arm);
+		XMMATRIX psimat = XMMatrixRotationZ(psi);
+		XMMATRIX humermat = XMMatrixTranslation(0,humlen,0);
+		XMMATRIX zetamat = XMMatrixRotationZ(zeta);
+		XMMATRIX forarmmat = XMMatrixTranslation(0,forlen,0);
+		XMMATRIX lammat = XMMatrixRotationZ(lambda);
+
+		XMMATRIX humerbone = XMMatrixScaling(humlen/10.0,humlen,humlen/10.0);
+		XMMATRIX forbone = XMMatrixScaling(forlen/10.0,forlen,forlen/10.0);
+		XMMATRIX spinbone = XMMatrixScaling(spinlen/10.0,spinlen,spinlen/10.0);
+
 		////////////////////////////////////////////////////////////////////////
 		//////////////////////////////////// Render ////////////////////////////
 		////////////////////////////////////////////////////////////////////////
