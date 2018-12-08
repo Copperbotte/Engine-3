@@ -132,7 +132,6 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
 	float3 View = vPos - In.wPos.xyz;
-	
 	float Viewdist = sqrt(dot(View, View));
 	
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), 
@@ -147,10 +146,10 @@ float4 PS(PIn In) : SV_TARGET
 	//Normal = normalize(Normal);
 	
 	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
-	float3 FogColor = srgb2photon(float3(0.5,0.75,1.0));
-	float3 FogTransparancy = 1;//float3(1,0.5,0.1);
+	float3 FogColor = Ambient;//1;
+	float3 FogTransparancy = 0.5;//srgb2photon(float3(0.5,0.75,1.0))*0.5;
 	
-	FogColor = Ambient;
+	//FogColor = Ambient;
 	
 	float3 Out = Ambient;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
@@ -162,7 +161,8 @@ float4 PS(PIn In) : SV_TARGET
 		float bright = 1.0 / dot(lite, lite);
 		lite = normalize(mul(Tangentspace, normalize(lite)));
 		float3 emit = Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
-		Out += Transmit(emit, FogColor, FogTransparancy, dist);
+		Out += emit;
+		//Out += Transmit(emit, FogColor, FogTransparancy, dist);
 	}
 
 	/*
@@ -179,7 +179,7 @@ float4 PS(PIn In) : SV_TARGET
 	}
 	*/
 	
-	Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
+	//Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
 	
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color

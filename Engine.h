@@ -75,7 +75,15 @@ struct TextureData
 	ID3D11ShaderResourceView *Textures[TEX_MAX_VALUE];
 };
 
+//Engine stage functions
+bool Init(ID3D11Device*, ID3D11DeviceContext*, IDXGISwapChain*);
+bool Think();
+bool Render(ID3D11ShaderResourceView*, MODELID*, MODELID*);
+void End();
+
 //engine premade functions
+inline void Draw(MODELID Model);
+
 ID3D11ShaderResourceView *LoadTexture(LPCWSTR File);
 ID3D11ShaderResourceView *LoadTexture(LPCWSTR File, HRESULT *Err);
 ID3D11SamplerState *CreateSampler(D3D11_SAMPLER_DESC *texdesc);
@@ -83,6 +91,19 @@ ID3D11SamplerState *CreateSampler(D3D11_SAMPLER_DESC *texdesc);
 TextureLocationData LoadTextureLocations(LPCWSTR Descriptor);
 TextureData LoadTextureSet(TextureLocationData Locs);
 TextureData LoadTextureSet(LPCWSTR Descriptor);
+
+//Templated shader loading functions
+HRESULT   CreateVertexShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out);
+HRESULT	    CreateHullShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out);
+HRESULT   CreateDomainShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out);
+HRESULT CreateGeometryShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out);
+HRESULT	   CreatePixelShaderGeneric(const void* BfrPtr, SIZE_T BfrSize, ID3D11ClassLinkage* Linkage, void** Out);
+
+ID3D11VertexShader	   *LoadVertexShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11HullShader	     *LoadHullShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11DomainShader	   *LoadDomainShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11GeometryShader *LoadGeometryShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
+ID3D11PixelShader	    *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
 
 //utility
 unsigned long xorshf96(void);
