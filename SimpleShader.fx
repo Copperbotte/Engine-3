@@ -144,6 +144,7 @@ float4 PS(PIn In) : SV_TARGET
 	//Mat.Power = 569;
 	//Normal.xy *= 0.1;
 	//Normal = normalize(Normal);
+	//Normal = float3(0,0,1);
 	
 	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	float3 FogColor = Ambient;//1;
@@ -165,19 +166,20 @@ float4 PS(PIn In) : SV_TARGET
 		//Out += Transmit(emit, FogColor, FogTransparancy, dist);
 	}
 
-	/*
+	
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(float2(-1.0,-1.0) <= PTscreen.xy) & all(PTscreen.xy <= float2(1.0,1.0));
 	if(frustrum)
 	{
-		float4 sam = PT.Sample(Sampler, (-PTscreen.xy + 1.0)/2.0);
+		float4 sam = PT.Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
+		//sam = float4(1,1,1,1);
 		float3 PT_vPos = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
-		float PT_bright = -1.0 / PTscreen.w;
+		float PT_bright = 1.0 / PTscreen.w;
 		float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
 		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 	}
-	*/
+	
 	
 	//Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
 	

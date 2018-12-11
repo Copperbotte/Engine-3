@@ -100,6 +100,9 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	//texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	//HDRsampler = CreateSampler(&texdesk);
 
+	_devcon->VSSetConstantBuffers(0, 2, cbuffer);
+	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
+
 	wchar_t *texlocations[] = 
 	{
 		L"Textures/photosculpt-mud.e3t",
@@ -109,7 +112,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		L"Textures/fancy_chair.e3t"
 	};
 
-	Mat = LoadTextureSet(texlocations[0]);
+	Mat = LoadTextureSet(texlocations[2]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -130,6 +133,8 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 
 bool Think()
 {
+	const float PI = 3.141592;
+
 	PrevTime = CurTime;
 	CurTime = GetTickCount();
 	const unsigned long framelimit = 8/1000;//120hz
@@ -139,9 +144,9 @@ bool Think()
 	Time = ((float)(CurTime - InitTime)) / 1000.0f;
 	Key.Update();
 
-	float cam_rotation = 0.0; // 0 for standard view, 0.5 for cool view
-	float cam_height = sin(cam_rotation * 3.141592) * 0.4;
-	XMMATRIX View = XMMatrixRotationX(cam_rotation*3.14159285/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
+	float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
+	float cam_height = sin(cam_rotation * PI) * 0.4;
+	XMMATRIX View = XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
 
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
 	ViewProj = View*Proj;
@@ -168,7 +173,7 @@ bool Think()
 	for(int i=0;i<6;++i)
 	{
 		LightBuffer.Lights[i].Color = Colors[i];
-		float dtheta = 3.141592 * 2.0*((float)i)/6.0;
+		float dtheta = PI * 2.0*((float)i)/6.0;
 		float rad = 2.0f; //0.5f;
 		float hai = 0.0f; //2.0f;
 		LightBuffer.Lights[i].Position = XMFLOAT3(rad*sin(theta+dtheta),hai,rad*cos(theta+dtheta));
@@ -180,6 +185,11 @@ bool Think()
 	ConstantBuffer.World = World;
 	ConstantBuffer.ViewProj = View*Proj;
 	
+	ConstantBuffer.PTViewProj = XMMatrixRotationY(-PI / 2)*XMMatrixTranslation(0,-1.5,-1.5)*XMMatrixRotationX(PI * (0.5/2.0));//*XMMatrixRotationX(3.141592 * (Time/2.0) / 10.0);
+	//ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj*Proj;
+	//ConstantBuffer.PTViewProj = View;
+	ConstantBuffer.PTViewProj *= XMMatrixPerspectiveRH(2.0,2.0,1.0,1000.0); // simple camera frustrum
+
 	/////////////////////////////////////////////////////////
 	//////////////// Compute inverse data ///////////////////
 	/////////////////////////////////////////////////////////
@@ -194,10 +204,7 @@ bool Think()
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldOrigin,sOrigin);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
-		
-	ConstantBuffer.PTViewProj = XMMatrixTranslation(0,-1.5,0)*XMMatrixRotationX(-3.141592/2.0);
-	ConstantBuffer.PTViewProj *= XMMatrixPerspectiveRH(1.0,1.0,1.0,10.0); // simple camera frustrum
-		
+
 	XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
 	XMVECTOR PTOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),PTS2W);
 	XMVECTOR PTVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),PTS2W);
@@ -212,13 +219,8 @@ bool Think()
 	return true;
 }
 
-
-bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID *Cubemodel)
+bool PrepRender(ID3D11ShaderResourceView *PTemissive)
 {
-	////////////////////////////////////////////////////////////////////////
-	//////////////////////////////////// Render ////////////////////////////
-	////////////////////////////////////////////////////////////////////////
-	
 	//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 	float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f}; // ambient
 	//float backgroundcolor[4] = {1.0f,1.0f,1.0f,1.0f}; // fog
@@ -239,11 +241,17 @@ bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID 
 
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	_devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
-	
-	_devcon->VSSetConstantBuffers(0, 2, cbuffer);
-	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
+	return true;
+}
+
+bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel)
+{
+	//Draw cube
+	ConstantBuffer.World = World;
+	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Cubemodel);
-		
+
+	//Draw floor
 	ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
 		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
 		*XMMatrixTranslation(0,-0.5f,0.0) // Translate to floor
@@ -251,10 +259,9 @@ bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID 
 	ConstantBuffer.UVScale = XMFLOAT2(20,20);
 
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	_devcon->VSSetConstantBuffers(0, 2, cbuffer);
-	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
 	Draw(*Screenmodel);
 
+	//Draw lights
 	_devcon->PSSetShader(Lightshader, 0, 0);
 	for(int i=0;i<ConstantBuffer.LightNum;++i)
 	{
@@ -263,9 +270,23 @@ bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID 
 			*XMMatrixTranslation(LightBuffer.Lights[i].Position.x,LightBuffer.Lights[i].Position.y,LightBuffer.Lights[i].Position.z);
 		ConstantBuffer.SelectedLight = i;
 		_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-		_devcon->PSSetConstantBuffers(0, 2, cbuffer);
 		Draw(*Cubemodel);
 	}
+
+	return true;
+}
+
+bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID *Cubemodel)
+{
+	////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////// Render ////////////////////////////
+	////////////////////////////////////////////////////////////////////////
+	
+	if(!PrepRender(PTemissive))
+		return false;
+
+	if(!RenderScene(Screenmodel, Cubemodel))
+		return false;
 	
 	return true;
 }
