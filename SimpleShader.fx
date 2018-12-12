@@ -14,6 +14,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4 PTS2WU; // same as screen 2 world
 	float4 PTS2WV;
 	float4 PTS2WO;
+	float4x4 PTInverse;
 	float4 TextureRanges[14];
 	uint LightNum;
 	uint SelectedLight;
@@ -35,7 +36,7 @@ cbuffer LightBuffer : register(b1)
 
 Texture2D RT : register(t0); // Render target
 Texture2D surface[7] : register(t1);
-Texture2D PT : register(t8);
+Texture2D PT[2] : register(t8);
 SamplerState Sampler : register(s0);
 
 float3 SampleTexture(uint Tex, float2 UV)
@@ -132,19 +133,24 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
 	float3 View = vPos - In.wPos.xyz;
-	float Viewdist = sqrt(dot(View, View));
+	//float Viewdist = sqrt(dot(View, View));
 	
-	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), 
-									 In.Bin,	//normalize(In.Bin),
-									 In.Norm);	//normalize(In.Norm));
+	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
+									 In.Bin,	//normalize(In.Bin), //
+									 In.Norm);	//normalize(In.Norm)); //
 	View = normalize(mul(Tangentspace, normalize(View)));
 	
 	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
 	//Mat.Reflectivity = Mat.Albedo;
 	//Mat.Power = 569;
-	//Normal.xy *= 0.1;
-	//Normal = normalize(Normal);
+	//Normal.xy *= 0.1; Normal = normalize(Normal);
 	//Normal = float3(0,0,1);
+	//Mat.Reflectivity = 0;
+	
+	//Mat.Albedo *= 1-Mat.Reflectivity;
+	//Mat.Reflectivity = 1;
+	
+	//Mat.Albedo = 0;
 	
 	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	float3 FogColor = Ambient;//1;
@@ -154,6 +160,8 @@ float4 PS(PIn In) : SV_TARGET
 	
 	float3 Out = Ambient;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
+	
+	//Out *= 0;
 	
 	for(uint i=0;i<LightNum;++i)
 	{
@@ -169,15 +177,30 @@ float4 PS(PIn In) : SV_TARGET
 	
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
-	bool frustrum = all(float2(-1.0,-1.0) <= PTscreen.xy) & all(PTscreen.xy <= float2(1.0,1.0));
+	bool frustrum = all(abs(PTscreen.xy) <= float2(1.0,1.0));
 	if(frustrum)
 	{
-		float4 sam = PT.Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
-		//sam = float4(1,1,1,1);
-		float3 PT_vPos = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
-		float PT_bright = 1.0 / PTscreen.w;
-		float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
-		Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
+		float4 PTCamPos = PT[1].Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
+		//return float4(float3(1,1,1)*PTCamPos.w, 1.0);
+		//return float4(saturate(PTCamPos.xyz),PTCamPos.w);
+		PTCamPos -= In.wPos;
+		if(dot(PTCamPos.xyz,PTCamPos.xyz) < 0.001)
+		{
+			float4 sam = PT[0].Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
+			//sam = float4(1,1,1,1);
+			float3 PT_vPos2 = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
+			float3 PT_vPos = mul(PTInverse, float4(PTscreen.xy,0,1)).xyz;
+			float PT_bright = 1.0 / (PTscreen.w);
+			float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
+			Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
+		}
+		/*
+		float3 diff = PT_vPos2-PT_vPos;
+		float mfdas = dot(diff, diff);
+		//mfdas *= mfdas;
+		return float4(mfdas*float3(1,1,1),1.0);
+		*/
+		//Out += saturate(dot(PT_lite, Normal));
 	}
 	
 	
@@ -192,6 +215,11 @@ float4 PS(PIn In) : SV_TARGET
 
 // Physically accurate lighting, uses Srgb2Photon.fx
 // Rendered on a 2nd pass
+
+float4 PTPS(PIn In) : SV_TARGET
+{
+	return In.wPos;
+}
 
 struct SRGBPOST_VIN
 {

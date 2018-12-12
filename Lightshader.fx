@@ -14,6 +14,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float4 PTS2WU; // same as screen 2 world
 	float4 PTS2WV;
 	float4 PTS2WO;
+	float4x4 PTInverse;
 	float4 TextureRanges[14];
 	uint LightNum;
 	uint SelectedLight;

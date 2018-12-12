@@ -45,14 +45,6 @@ ID3D11ShaderResourceView *HDRres;
 ID3D11SamplerState *HDRsampler;
 ID3D11PixelShader *HDRps;
 
-//projected texture
-ID3D11RenderTargetView *PTbuffer[2]; // position, UVcoords taken from depth buffer
-ID3D11ShaderResourceView *PTres[2];
-ID3D11DepthStencilView *PTzbuffer;
-ID3D11ShaderResourceView *PTemissive;
-ID3D11VertexShader *PTvs;
-ID3D11PixelShader *PTps;
-
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
 				   PSTR sxCmdLine,
@@ -137,7 +129,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	viewport.MaxDepth = 1.0f;
 	devcon->RSSetViewports(1, &viewport);
 
-	// Scary to have this before the swap chain set
 	// Depth buffer
 	D3D11_TEXTURE2D_DESC RTDesc, dsd, HDRDesc;
 	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
@@ -155,7 +146,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTDesc.Usage = D3D11_USAGE_DEFAULT;
 	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 	RTDesc.CPUAccessFlags = 0;
-	RTDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+	RTDesc.MiscFlags = 0;
 	RTVD.Format = RTDesc.Format;
 	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 	RTVD.Texture2D.MipSlice = 0;
@@ -166,8 +157,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	// Temporary textures to set the render target to the backbuffer and RTbuffer
 	ID3D11Texture2D *RTtex, *zbuffertex;
-	swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&backbuffertex); // holy fucking shit
-	d3ddev->CreateRenderTargetView(backbuffertex,NULL,&backbuffer);
 
 	HDRDesc = RTDesc;
 	RTDesc.MipLevels = 0;
@@ -187,8 +176,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
 	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
 
-	devcon->OMSetRenderTargets(1, &backbuffer, nullptr); // required
-	devcon->OMGetRenderTargets(1, &backbuffer, &zbuffer);
 	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
 	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
 
@@ -233,14 +220,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	{
 		End();
 		return msg.wParam;
-	}
-	
-	HRESULT PTError = S_OK;
-	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);
-	if(PTError == D3D11_ERROR_FILE_NOT_FOUND)
-	{
-		MessageBox(NULL, L"Projected texture not found", L"error", MB_OK | MB_ICONERROR);
-		SAFE_RELEASE(PTemissive);
 	}
 	
 	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
@@ -397,7 +376,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer); // passed into the render function
 
-		if(!Render(PTemissive, &Screenmodel, &Cubemodel)) // temporary
+		if(!Render(&Screenmodel, &Cubemodel)) // temporary
 			break;
 
 		////////////////////////////////////////////////////////////////////////
@@ -448,9 +427,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	for(unsigned int i=0;i<2;i++)
 		SAFE_RELEASE(cbuffer[i]);
-		*/
+		
 	SAFE_RELEASE(PTemissive);
-
+	*/
 	SAFE_RELEASE(HDRps);
 	SAFE_RELEASE(HDRbuffer);
 	SAFE_RELEASE(HDRres);

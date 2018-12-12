@@ -30,6 +30,14 @@ ID3D11SamplerState *TextureSampler;
 //Textures
 TextureData Mat;
 
+//projected texture
+ID3D11RenderTargetView *PTbuffer; // position taken from depth buffer
+ID3D11ShaderResourceView *PTres;
+ID3D11DepthStencilView *PTzbuffer;
+ID3D11ShaderResourceView *PTemissive;
+ID3D11PixelShader *PTps;
+D3D11_VIEWPORT PTviewport;
+
 struct
 { // 16 BYTE intervals
 	XMMATRIX World;
@@ -41,6 +49,7 @@ struct
 	XMFLOAT4 PTS2WU; // same as screen 2 world
 	XMFLOAT4 PTS2WV;
 	XMFLOAT4 PTS2WO;
+	XMMATRIX PTInverse;
 	XMFLOAT4 TextureRanges[14];
 	unsigned int LightNum;
 	unsigned int SelectedLight;
@@ -80,10 +89,15 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	cbbd.ByteWidth = sizeof(LightBuffer);
 	_d3ddev->CreateBuffer(&cbbd,NULL,&cbuffer[1]);
 	
+	_devcon->VSSetConstantBuffers(0, 2, cbuffer);
+	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
+
 	vs = LoadVertexShader(L"SimpleShader.fx", "VS", "vs_5_0", true);
 	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
 	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
+
+	PTps = LoadPixelShader(L"SimpleShader.fx", "PTPS", "ps_5_0", false);
 
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(ps, 0, 0);
@@ -97,11 +111,11 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	texdesk.MaxLOD = D3D11_FLOAT32_MAX;
 	TextureSampler = CreateSampler(&texdesk);
 	
+	_devcon->PSSetSamplers(0, 1, &TextureSampler);
+	_devcon->VSSetSamplers(0, 1, &TextureSampler);
+
 	//texdesk.AddressU = texdesk.AddressV = texdesk.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 	//HDRsampler = CreateSampler(&texdesk);
-
-	_devcon->VSSetConstantBuffers(0, 2, cbuffer);
-	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
 
 	wchar_t *texlocations[] = 
 	{
@@ -120,9 +134,71 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	_devcon->PSSetShaderResources(1, 7, Mat.Textures);
 	_devcon->GSSetShaderResources(1, 7, Mat.Textures);
 	_devcon->VSSetShaderResources(1, 1, &Mat.Textures[TEX_Height]);
+	
+	////////////////////////////////////////////////////////////////////////////
+	///////////////////////////// Projected Texture ////////////////////////////
+	////////////////////////////////////////////////////////////////////////////
 
-	_devcon->PSSetSamplers(0, 1, &TextureSampler);
-	_devcon->VSSetSamplers(0, 1, &TextureSampler);
+	// Depth buffer
+	D3D11_TEXTURE2D_DESC PTDesc, PTzDesc;
+	D3D11_RENDER_TARGET_VIEW_DESC PTVD;
+	D3D11_SHADER_RESOURCE_VIEW_DESC PTsvd;
+	ID3D11Texture2D *PTtex, *PTzbuffertex;
+
+	ZeroMemory(&PTDesc,sizeof(D3D11_TEXTURE2D_DESC));
+	ZeroMemory(&PTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
+	ZeroMemory(&PTsvd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
+	PTDesc.Width = 2048;
+	PTDesc.Height = 2048;
+	PTDesc.MipLevels = 1;
+	PTDesc.ArraySize = 1;
+	PTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	PTDesc.SampleDesc.Count = 1;
+	PTDesc.SampleDesc.Quality = 0;
+	PTDesc.Usage = D3D11_USAGE_DEFAULT;
+	PTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	PTDesc.CPUAccessFlags = 0;
+	PTDesc.MiscFlags = 0;
+	PTVD.Format = PTDesc.Format;
+	PTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+	PTVD.Texture2D.MipSlice = 0;
+	PTsvd.Format = PTVD.Format;
+	PTsvd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	PTsvd.Texture2D.MostDetailedMip = 0;
+	PTsvd.Texture2D.MipLevels = PTDesc.MipLevels;
+
+	PTzDesc = PTDesc;
+	PTzDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	PTzDesc.Usage = D3D11_USAGE_DEFAULT;
+	PTzDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	PTzDesc.MiscFlags = 0;
+
+	_d3ddev->CreateTexture2D(&PTDesc, NULL, &PTtex);
+	_d3ddev->CreateRenderTargetView(PTtex,&PTVD,&PTbuffer);
+	_d3ddev->CreateShaderResourceView(PTtex,&PTsvd,&PTres);
+
+	_d3ddev->CreateTexture2D(&PTzDesc, NULL, &PTzbuffertex);
+	_d3ddev->CreateDepthStencilView(PTzbuffertex, NULL, &PTzbuffer);
+
+	SAFE_RELEASE(PTtex);
+	SAFE_RELEASE(PTzbuffertex);
+
+	ZeroMemory(&PTviewport,sizeof(D3D11_VIEWPORT));
+	PTviewport.TopLeftX = 0;
+	PTviewport.TopLeftY = 0;
+	PTviewport.Width = (float)PTDesc.Width;
+	PTviewport.Height = (float)PTDesc.Height;
+	PTviewport.MinDepth = 0.0f;
+	PTviewport.MaxDepth = 1.0f;
+
+	HRESULT PTError = S_OK;
+	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);
+	if(PTError == D3D11_ERROR_FILE_NOT_FOUND)
+	{
+		MessageBox(NULL, L"Projected texture not found", L"error", MB_OK | MB_ICONERROR);
+		SAFE_RELEASE(PTemissive);
+		return false;
+	}
 	
 	InitTime = CurTime = PrevTime = GetTickCount();
 	Time = 0.0;
@@ -134,7 +210,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 bool Think()
 {
 	const float PI = 3.141592;
-
+	
 	PrevTime = CurTime;
 	CurTime = GetTickCount();
 	const unsigned long framelimit = 8/1000;//120hz
@@ -142,16 +218,16 @@ bool Think()
 		CurTime = GetTickCount();
 
 	Time = ((float)(CurTime - InitTime)) / 1000.0f;
+	//Time = 0.5;
 	Key.Update();
 
 	float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
 	float cam_height = sin(cam_rotation * PI) * 0.4;
 	XMMATRIX View = XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
-
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
 	ViewProj = View*Proj;
 
-	World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(Time/3.0f);
+	World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(0.0*Time/3.0f);
 
 	if(Key(VK_SPACE))
 		UVScale = XMFLOAT2(3.0,3.0);
@@ -179,17 +255,22 @@ bool Think()
 		LightBuffer.Lights[i].Position = XMFLOAT3(rad*sin(theta+dtheta),hai,rad*cos(theta+dtheta));
 		//LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.5f*sin(theta+dtheta),2.0f*cos(theta+dtheta));
 	}
-		
-	ConstantBuffer.UVScale = UVScale;
-
-	ConstantBuffer.World = World;
-	ConstantBuffer.ViewProj = View*Proj;
 	
-	ConstantBuffer.PTViewProj = XMMatrixRotationY(-PI / 2)*XMMatrixTranslation(0,-1.5,-1.5)*XMMatrixRotationX(PI * (0.5/2.0));//*XMMatrixRotationX(3.141592 * (Time/2.0) / 10.0);
-	//ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj*Proj;
+	ConstantBuffer.PTViewProj = XMMatrixRotationY(-1.5*PI / 2.0)
+								*XMMatrixRotationX(PI * (0.5/2.0))
+								*XMMatrixTranslation(0.0,0.0,-2.0);
+	//ConstantBuffer.PTViewProj *= Proj;
+	//ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj;
 	//ConstantBuffer.PTViewProj = View;
 	ConstantBuffer.PTViewProj *= XMMatrixPerspectiveRH(2.0,2.0,1.0,1000.0); // simple camera frustrum
+	//ConstantBuffer.PTViewProj *= XMMatrixOrthographicRH(2.0,2.0,0.0,1000.0);
 
+	//ViewProj = ConstantBuffer.PTViewProj;
+	return true;
+}
+
+bool PrepRender()
+{
 	/////////////////////////////////////////////////////////
 	//////////////// Compute inverse data ///////////////////
 	/////////////////////////////////////////////////////////
@@ -206,9 +287,11 @@ bool Think()
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
 
 	XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
+	ConstantBuffer.PTInverse = PTS2W;
+
 	XMVECTOR PTOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),PTS2W);
 	XMVECTOR PTVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),PTS2W);
-	XMVECTOR PTVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,-1.0,0.0,1.0)),PTS2W);
+	XMVECTOR PTVecV = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,1.0,0.0,1.0)),PTS2W);
 	PTVecU -= PTOrigin;
 	PTVecV -= PTOrigin;
 
@@ -216,38 +299,26 @@ bool Think()
 	XMStoreFloat4(&ConstantBuffer.PTS2WU,PTVecU);
 	XMStoreFloat4(&ConstantBuffer.PTS2WV,PTVecV);
 
-	return true;
-}
-
-bool PrepRender(ID3D11ShaderResourceView *PTemissive)
-{
-	//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
-	float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f}; // ambient
-	//float backgroundcolor[4] = {1.0f,1.0f,1.0f,1.0f}; // fog
-
-	ID3D11RenderTargetView *RTbuffer;
-	ID3D11DepthStencilView *zbuffer;
-	_devcon->OMGetRenderTargets(1, &RTbuffer, &zbuffer);
-	
-	_devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
-	_devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-	_devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
-	
-	_devcon->VSSetShader(vs, 0, 0);
-	_devcon->PSSetShader(ps, 0, 0);
+	ConstantBuffer.ViewProj = ViewProj;
 
 	_devcon->PSSetShaderResources(1, 7, Mat.Textures);
 	_devcon->PSSetShaderResources(8, 1, &PTemissive);
 
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	_devcon->UpdateSubresource(cbuffer[1], 0, NULL, &LightBuffer, 0, 0);
+
 	return true;
 }
 
-bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel)
+bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS)
 {
+	XMMATRIX WorldRotation = XMMatrixRotationY(Time/3.0f);
+	_devcon->VSSetShader(vs, 0, 0);
+	_devcon->PSSetShader(WorldPS, 0, 0);
+
 	//Draw cube
-	ConstantBuffer.World = World;
+	ConstantBuffer.UVScale = UVScale;
+	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*WorldRotation;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Cubemodel);
 
@@ -255,14 +326,13 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel)
 	ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
 		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
 		*XMMatrixTranslation(0,-0.5f,0.0) // Translate to floor
-		*XMMatrixRotationY(Time/3.0f); // Match cube rotation
+		*WorldRotation; // Match cube rotation
 	ConstantBuffer.UVScale = XMFLOAT2(20,20);
-
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Screenmodel);
 
 	//Draw lights
-	_devcon->PSSetShader(Lightshader, 0, 0);
+	_devcon->PSSetShader(LightPS, 0, 0);
 	for(int i=0;i<ConstantBuffer.LightNum;++i)
 	{
 		ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)
@@ -276,18 +346,50 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel)
 	return true;
 }
 
-bool Render(ID3D11ShaderResourceView *PTemissive, MODELID *Screenmodel, MODELID *Cubemodel)
+bool Render(MODELID *Screenmodel, MODELID *Cubemodel)
 {
 	////////////////////////////////////////////////////////////////////////
 	//////////////////////////////////// Render ////////////////////////////
 	////////////////////////////////////////////////////////////////////////
 	
-	if(!PrepRender(PTemissive))
-		return false;
+	//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
+	float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f}; // ambient
+	//float backgroundcolor[4] = {1.0f,1.0f,1.0f,1.0f}; // fog
+	
+	float PTclear [4] =  {1,0,0,1};
 
-	if(!RenderScene(Screenmodel, Cubemodel))
+	ID3D11RenderTargetView *RTbuffer;
+	ID3D11DepthStencilView *zbuffer;
+	D3D11_VIEWPORT viewport;
+	unsigned int vps = 1;
+	_devcon->OMGetRenderTargets(1, &RTbuffer, &zbuffer);
+	_devcon->RSGetViewports(&vps, &viewport);
+	if(!PrepRender())
 		return false;
 	
+
+	_devcon->OMSetRenderTargets(1, &PTbuffer, PTzbuffer);
+	_devcon->ClearRenderTargetView(PTbuffer, PTclear);
+	_devcon->ClearDepthStencilView(PTzbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	_devcon->RSSetViewports(1, &PTviewport);
+	
+	ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj;
+	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps))
+		return false;
+	
+	
+	_devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
+	_devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
+	_devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+
+	_devcon->RSSetViewports(1, &viewport);
+	_devcon->PSSetShaderResources(9, 1, &PTres);
+	ConstantBuffer.ViewProj = ViewProj;
+	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader))
+		return false;
+
 	return true;
 }
 
@@ -301,9 +403,15 @@ void End()
 
 	for(unsigned int i=0;i<2;i++)
 		SAFE_RELEASE(cbuffer[i]);
-	/*
+	
+	
+	SAFE_RELEASE(PTbuffer); // position taken from depth buffer
+	SAFE_RELEASE(PTres);
+	SAFE_RELEASE(PTzbuffer);
 	SAFE_RELEASE(PTemissive);
+	SAFE_RELEASE(PTps);
 
+	/*
 	SAFE_RELEASE(HDRps);
 	SAFE_RELEASE(HDRbuffer);
 	SAFE_RELEASE(HDRres);

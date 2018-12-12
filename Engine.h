@@ -78,7 +78,7 @@ struct TextureData
 //Engine stage functions
 bool Init(ID3D11Device*, ID3D11DeviceContext*, IDXGISwapChain*);
 bool Think();
-bool Render(ID3D11ShaderResourceView*, MODELID*, MODELID*);
+bool Render(MODELID*, MODELID*);
 void End();
 
 //engine premade functions
