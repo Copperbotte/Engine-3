@@ -181,8 +181,6 @@ float4 PS(PIn In) : SV_TARGET
 	if(frustrum)
 	{
 		float4 PTCamPos = PT[1].Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
-		//return float4(float3(1,1,1)*PTCamPos.w, 1.0);
-		//return float4(saturate(PTCamPos.xyz),PTCamPos.w);
 		PTCamPos -= In.wPos;
 		if(dot(PTCamPos.xyz,PTCamPos.xyz) < 0.001)
 		{
@@ -194,13 +192,6 @@ float4 PS(PIn In) : SV_TARGET
 			float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
 			Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 		}
-		/*
-		float3 diff = PT_vPos2-PT_vPos;
-		float mfdas = dot(diff, diff);
-		//mfdas *= mfdas;
-		return float4(mfdas*float3(1,1,1),1.0);
-		*/
-		//Out += saturate(dot(PT_lite, Normal));
 	}
 	
 	

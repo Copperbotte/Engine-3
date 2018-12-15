@@ -126,7 +126,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		L"Textures/fancy_chair.e3t"
 	};
 
-	Mat = LoadTextureSet(texlocations[2]);
+	Mat = LoadTextureSet(texlocations[1]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -223,7 +223,10 @@ bool Think()
 
 	float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
 	float cam_height = sin(cam_rotation * PI) * 0.4;
-	XMMATRIX View = XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
+	
+	float WorldRotation = Time/3.0f;
+
+	XMMATRIX View = XMMatrixRotationY(WorldRotation)*XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
 	ViewProj = View*Proj;
 
@@ -256,7 +259,7 @@ bool Think()
 		//LightBuffer.Lights[i].Position = XMFLOAT3(2.0f*sin(theta+dtheta),0.5f*sin(theta+dtheta),2.0f*cos(theta+dtheta));
 	}
 	
-	ConstantBuffer.PTViewProj = XMMatrixRotationY(-1.5*PI / 2.0)
+	ConstantBuffer.PTViewProj = XMMatrixRotationY(Time*PI/9.0+(-Time/10.0-1.5)*PI / 2.0)
 								*XMMatrixRotationX(PI * (0.5/2.0))
 								*XMMatrixTranslation(0.0,0.0,-2.0);
 	//ConstantBuffer.PTViewProj *= Proj;
@@ -312,7 +315,7 @@ bool PrepRender()
 
 bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS)
 {
-	XMMATRIX WorldRotation = XMMatrixRotationY(Time/3.0f);
+	XMMATRIX WorldRotation = XMMatrixRotationY(0*Time/3.0f);
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(WorldPS, 0, 0);
 
@@ -411,38 +414,10 @@ void End()
 	SAFE_RELEASE(PTemissive);
 	SAFE_RELEASE(PTps);
 
-	/*
-	SAFE_RELEASE(HDRps);
-	SAFE_RELEASE(HDRbuffer);
-	SAFE_RELEASE(HDRres);
-	SAFE_RELEASE(HDRtex);
-	*/
 	SAFE_RELEASE(vs);
 	SAFE_RELEASE(ps);
 
 	SAFE_RELEASE(Lightshader);
-	/*
-	SAFE_RELEASE(RTbuffer);
-	SAFE_RELEASE(RTtex);
-	SAFE_RELEASE(RTres);
-	SAFE_RELEASE(RTvs);
-	SAFE_RELEASE(RTps);
-
-	SAFE_RELEASE(layoutblob);
-	SAFE_RELEASE(vertlayout);
-	SAFE_RELEASE(vbuffer);
-	SAFE_RELEASE(ibuffer);
-	SAFE_RELEASE(Rasta);
-	SAFE_RELEASE(DisplayRaster);
-	SAFE_RELEASE(Blenda);
-	
-	SAFE_RELEASE(zbuffer);
-	SAFE_RELEASE(backbuffer);
-	
-	SAFE_RELEASE(swapchain);
-	SAFE_RELEASE(devcon);
-	SAFE_RELEASE(d3ddev);
-	*/
 }
 
 

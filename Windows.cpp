@@ -146,7 +146,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTDesc.Usage = D3D11_USAGE_DEFAULT;
 	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 	RTDesc.CPUAccessFlags = 0;
-	RTDesc.MiscFlags = 0;
+	RTDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 	RTVD.Format = RTDesc.Format;
 	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 	RTVD.Texture2D.MipSlice = 0;
@@ -402,14 +402,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		ID3D11ShaderResourceView *Resources[2] = {RTres, HDRres};
 		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		devcon->VSSetShader(RTvs, 0, 0);
-		devcon->HSSetShader(NULL, 0, 0);
-		devcon->DSSetShader(NULL, 0, 0);
-		devcon->GSSetShader(NULL, 0, 0);
 		devcon->PSSetShader(RTps, 0, 0);
 		devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
-		devcon->RSSetState(DisplayRaster);
-		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		Draw(Screenmodel);
 
 		swapchain->Present(0, 0);
