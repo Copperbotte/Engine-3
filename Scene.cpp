@@ -19,6 +19,8 @@ XMMATRIX World;
 XMFLOAT2 UVScale;
 
 //Render
+ParticleSystem PS;
+
 //Shaders
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
@@ -199,7 +201,18 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		SAFE_RELEASE(PTemissive);
 		return false;
 	}
-	
+
+	XMFLOAT3 Colors[6] = 
+	{
+		XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
+		XMFLOAT3(1.0,1.0,0.0),
+		XMFLOAT3(0.0,1.0,0.0),
+		XMFLOAT3(0.0,1.0,1.0),
+		XMFLOAT3(0.0,0.0,1.0),
+		XMFLOAT3(1.0,0.0,1.0),
+	};
+	ConstantBuffer.LightNum = 6;
+
 	InitTime = CurTime = PrevTime = GetTickCount();
 	Time = 0.0;
 
@@ -315,21 +328,30 @@ bool PrepRender()
 
 bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS)
 {
-	XMMATRIX WorldRotation = XMMatrixRotationY(0*Time/3.0f);
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(WorldPS, 0, 0);
 
 	//Draw cube
 	ConstantBuffer.UVScale = UVScale;
-	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*WorldRotation;
+	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f);//*XMMatrixTranslation(0.1*sin(Time*10.0),0,0.1*cos(Time*10.0));
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Cubemodel);
+
+	Particle *Next = PS.Root;
+	for(int i=0;i<PS.Alive;++i)
+	{
+		ConstantBuffer.World = XMMatrixTranslation(Next->Pos[0],Next->Pos[1],Next->Pos[2]);
+		_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+		Draw(*Cubemodel);
+		Next = Next->Next;
+	}
+
+
 
 	//Draw floor
 	ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
 		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
-		*XMMatrixTranslation(0,-0.5f,0.0) // Translate to floor
-		*WorldRotation; // Match cube rotation
+		*XMMatrixTranslation(0,-0.5f,0.0); // Translate to floor
 	ConstantBuffer.UVScale = XMFLOAT2(20,20);
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Screenmodel);

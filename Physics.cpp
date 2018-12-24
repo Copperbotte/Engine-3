@@ -65,8 +65,8 @@ void TriangleIntersect()
 
 	float uv[2][2] = {0};
 	for(int i=0;i<2;++i) // target coordinate
-		for(int j=0;j<2;++j)
-			for(int k=0;k<4;++k)
+		for(int j=0;j<2;++j) // source coodinate
+			for(int k=0;k<4;++k) // coodrinate dimension
 				uv[i][j] += (basis[j][k]*bdot[1-j] - basis[1-j][k]*bdot[2]) * isectpoints[i][k] / det;
 
 	//test uv coodrinates for barycentric intersection
@@ -75,5 +75,7 @@ void TriangleIntersect()
 		intri[i] = 0 <= uv[i][0] && 0 <= uv[i][1] && uv[i][0] + uv[i][1] <= 1;
 
 	//uv, and intri hold the coodinates, and if the point is in the triangle
+
+
 
 }

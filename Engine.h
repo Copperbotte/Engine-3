@@ -114,3 +114,33 @@ double Wrap(double Input, double Min, double Max);
 bool Clamp(int*, int Min, int Max);
 bool Clamp(float*, float Min, float Max);
 bool Clamp(double*, double Min, double Max);
+
+struct Particle
+{
+	/*float Pos[3];
+	float vel[3];
+	float StartTime;
+	float EndTime;*/
+
+	unsigned int StartTime;
+	float Pos[3];
+
+	Particle *Next;
+};
+
+class ParticleSystem
+{
+public:
+	Particle *Data;
+	Particle **Dead;
+	unsigned int Alive, Max;
+
+public:
+	Particle *Root;
+	ParticleSystem();
+	void New(Particle *In);
+	void Remove(Particle** Prev);
+	~ParticleSystem();
+};
+
+
