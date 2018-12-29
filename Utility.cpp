@@ -26,6 +26,15 @@ unsigned long *xorshfdata(void)
 	return xorshfnums;
 }
 
+unsigned long long GetTimeHns() // Time in 100 nanoseconds
+{
+	FILETIME ft;
+	GetSystemTimeAsFileTime(&ft);
+	ULARGE_INTEGER li;
+	li.LowPart = ft.dwLowDateTime;
+	li.HighPart = ft.dwHighDateTime;
+	return li.QuadPart;
+}
 
 unsigned int Animate(unsigned long Time,double Interval,unsigned int Frames)
 {

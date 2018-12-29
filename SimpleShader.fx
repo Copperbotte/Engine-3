@@ -19,6 +19,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	uint LightNum;
 	uint SelectedLight;
 	float2 UVScale;
+	uint framenum;
 };
 
 struct LightInfo
@@ -133,7 +134,7 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
 	float3 View = vPos - In.wPos.xyz;
-	//float Viewdist = sqrt(dot(View, View));
+	float Viewdist = sqrt(dot(View, View));
 	
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
 									 In.Bin,	//normalize(In.Bin), //
@@ -241,7 +242,7 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
 	float4 Out = RT.Sample(Sampler, In.tex);
-	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the scene without hdr
+	Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the dark scene without hdr, 0.1 for bright
 	//Out.xyz /= Out.xyz + 1.0;
 	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
 }
@@ -251,4 +252,10 @@ float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
 	float4 Out = RT.Sample(Sampler, In.tex);
 	float lum = log(dot(Out.xyz,float3(0.27,0.67,0.06)));
 	return float4(float3(1.0,1.0,1.0) * lum,1.0);
+}
+
+float4 MB_PS(SRGBPOST_PIN In) : SV_TARGET
+{
+	float4 sam = RT.Sample(Sampler, In.tex);
+	return float4(sam.xyz/1.0, sam.a);
 }

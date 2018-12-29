@@ -1,5 +1,6 @@
 
 #include "Engine.h"
+#include <string>
 
 static unsigned int WINWIDTH = 1280;
 static unsigned int WINHEIGHT = 720;
@@ -7,14 +8,10 @@ static unsigned int WINHEIGHT = 720;
 LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
 static TCHAR szWindowClass[] = TEXT("Engine3");
 static TCHAR szTitle[] = TEXT("VIDEOGAMES");
-/*
-//Templated shader loading functions
-ID3D11VertexShader	   *LoadVertexShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
-ID3D11HullShader	     *LoadHullShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
-ID3D11DomainShader	   *LoadDomainShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
-ID3D11GeometryShader *LoadGeometryShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
-ID3D11PixelShader	    *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR Format, bool UseConstFormat);
-*/
+
+unsigned int presentframedata[100000]; 
+unsigned int totalframes = 0;
+
 //Mandatory structures
 IDXGISwapChain *swapchain;
 ID3D11Device *d3ddev;
@@ -42,8 +39,14 @@ ID3D11PixelShader *RTps;
 ID3D11RenderTargetView *HDRbuffer;
 ID3D11Texture2D *HDRtex; // needed for mip generation
 ID3D11ShaderResourceView *HDRres;
-ID3D11SamplerState *HDRsampler;
 ID3D11PixelShader *HDRps;
+
+//Motion blur
+ID3D11RenderTargetView *MBbuffer;
+ID3D11Texture2D *MBtex; // needed for mip generation
+ID3D11ShaderResourceView *MBres;
+ID3D11PixelShader *MBps;
+ID3D11BlendState *MBBlend;
 
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
@@ -156,7 +159,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	svd.Texture2D.MipLevels = RTDesc.MipLevels;
 
 	// Temporary textures to set the render target to the backbuffer and RTbuffer
-	ID3D11Texture2D *RTtex, *zbuffertex;
+	ID3D11Texture2D *RTtex, *zbuffertex, *MBtex;
 
 	HDRDesc = RTDesc;
 	RTDesc.MipLevels = 0;
@@ -176,10 +179,15 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
 	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
 
+	d3ddev->CreateTexture2D(&RTDesc, NULL, &MBtex);
+	d3ddev->CreateRenderTargetView(MBtex,&RTVD,&MBbuffer);
+	d3ddev->CreateShaderResourceView(MBtex,&svd,&MBres);
+
 	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
 	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
 
 	SAFE_RELEASE(RTtex);
+	SAFE_RELEASE(MBtex);
 	SAFE_RELEASE(zbuffertex);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -190,9 +198,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	ZeroMemory(&rtbd,sizeof(D3D11_RENDER_TARGET_BLEND_DESC));
 	rtbd.BlendEnable = true;
 	rtbd.SrcBlend = D3D11_BLEND_SRC_ALPHA;
-	rtbd.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // what a weird equation
+	rtbd.DestBlend = D3D11_BLEND_INV_SRC_ALPHA; // lerp between src and dst
 	rtbd.BlendOp = D3D11_BLEND_OP_ADD;
-	rtbd.SrcBlendAlpha = D3D11_BLEND_ONE;
+	rtbd.SrcBlendAlpha = D3D11_BLEND_ONE; // lerp scale of 0
 	rtbd.DestBlendAlpha = D3D11_BLEND_ZERO;
 	rtbd.BlendOpAlpha = D3D11_BLEND_OP_ADD;
 	rtbd.RenderTargetWriteMask = D3D10_COLOR_WRITE_ENABLE_ALL;
@@ -200,6 +208,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	blendesc.RenderTarget[0] = rtbd;
 	d3ddev->CreateBlendState(&blendesc, &Blenda);
 	devcon->OMSetBlendState(Blenda, NULL, 0xffffffff); // what the shit
+
+	rtbd.DestBlend = D3D11_BLEND_ONE; // additive blending
+	blendesc.RenderTarget[0] = rtbd;
+	d3ddev->CreateBlendState(&blendesc, &MBBlend);
 
 	D3D11_RASTERIZER_DESC rastadec;
 	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
@@ -226,6 +238,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
 
 	HDRps = LoadPixelShader(L"SimpleShader.fx", "HDR_LUMEN_PS", "ps_5_0", false);
+	MBps = LoadPixelShader(L"SimpleShader.fx", "MB_PS", "ps_5_0", false);
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
@@ -356,11 +369,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	////////////////////////////////// Main Loop ///////////////////////////////
 	////////////////////////////////////////////////////////////////////////////
 
+	unsigned int frames = 0;
+
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
-	unsigned long InitTime = GetTickCount();
-	unsigned long CurTime = InitTime;
-	unsigned long PrevTime = InitTime;
+	unsigned long long InitTime, CurTime, PrevFrame;
+	InitTime = CurTime = PrevFrame = GetTimeHns();
 	while(true)
 	{
 		if(PeekMessage(&msg,NULL,0,0,PM_REMOVE))
@@ -375,65 +389,131 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			break;
 
 		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer); // passed into the render function
+		devcon->OMSetBlendState(Blenda, NULL, 0xffffffff);
 
-		if(!Render(&Screenmodel, &Cubemodel)) // temporary
+		if(!Render(false, &Screenmodel, &Cubemodel)) // temporary
 			break;
-
+			
 		////////////////////////////////////////////////////////////////////////
 		/////////////////////////////// Postprocess ////////////////////////////
 		////////////////////////////////////////////////////////////////////////
 
-		//Convert linear image to log luminosity
-		devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
+		//Add frames until framerate limit
+		devcon->OMSetRenderTargets(1, &MBbuffer, zbuffer);
+		devcon->OMSetBlendState(MBBlend, NULL, 0xffffffff);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		devcon->VSSetShader(RTvs, 0, 0);
 		devcon->HSSetShader(NULL, 0, 0);
 		devcon->DSSetShader(NULL, 0, 0);
 		devcon->GSSetShader(NULL, 0, 0);
-		devcon->PSSetShader(HDRps, 0, 0);
+		devcon->PSSetShader(MBps, 0, 0);
 		devcon->PSSetShaderResources(0, 1, &RTres); // Pull from render target
 		devcon->RSSetState(DisplayRaster);
 		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		Draw(Screenmodel);
 
-		devcon->GenerateMips(HDRres);
+		++frames;
+		CurTime = GetTimeHns();
 
-		//Convert from linear to srgb color space and display
-		ID3D11ShaderResourceView *Resources[2] = {RTres, HDRres};
-		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
-		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		devcon->PSSetShader(RTps, 0, 0);
-		devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
-		Draw(Screenmodel);
+		if(totalframes < 100000)
+		{
+			presentframedata[totalframes] = frames;
+			++totalframes;
+		}
+
+		unsigned long interval = 10000000/120;//66; 
+
+		if(interval < CurTime - PrevFrame)
+		{
+			//Convert linear image to log luminosity
+			devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
+			devcon->OMSetBlendState(Blenda, NULL, 0xffffffff);
+			devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			devcon->VSSetShader(RTvs, 0, 0);
+			devcon->HSSetShader(NULL, 0, 0);
+			devcon->DSSetShader(NULL, 0, 0);
+			devcon->GSSetShader(NULL, 0, 0);
+			devcon->PSSetShader(HDRps, 0, 0);
+			devcon->PSSetShaderResources(0, 1, &MBres); // Pull from render target
+			devcon->RSSetState(DisplayRaster);
+			devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			Draw(Screenmodel);
+
+			//Find average log luminosity
+			devcon->GenerateMips(HDRres);
+
+			//Convert from linear to srgb color space and display
+			ID3D11ShaderResourceView *Resources[2] = {MBres, HDRres};
+			devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
+			devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			devcon->PSSetShader(RTps, 0, 0);
+			devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
+			Draw(Screenmodel);
+
+			float clear[4] =  {0,0,0,1};
+			devcon->ClearRenderTargetView(MBbuffer, clear);
+
+			PrevFrame = CurTime;
+			frames = 0;
+			if(CurTime - InitTime > 5000*10000)
+				break;
+
+		}
 
 		swapchain->Present(0, 0);
+			
+		//float clear[4] =  {0,0,0,1};
+		//devcon->ClearRenderTargetView(MBbuffer, clear);
 
-		const unsigned long framelimit = 8/1000;//1ms
-		while(CurTime - PrevTime < framelimit)
-			PrevTime = CurTime;	
+
+		
 	}
 
 	End();
-	/*
-	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
-		SAFE_RELEASE(Mat.Textures[i]);
-	SAFE_RELEASE(TextureSampler);
 
-	for(unsigned int i=0;i<2;i++)
-		SAFE_RELEASE(cbuffer[i]);
-		
-	SAFE_RELEASE(PTemissive);
-	*/
+	using namespace std;
+	wstring words;
+	long double mean = 0;
+	long double rms = 0;
+	long double min = 1000000000000000000;
+	long double max = 0;
+
+	for(int i=0;i<totalframes;++i)
+	{
+		long double v = presentframedata[i];
+		mean += v;
+		if(v < min) min = v;
+		if(max < v) max = v;
+	}
+	mean /= (long double)totalframes;
+
+	for(int i=0;i<totalframes;++i)
+	{
+		long double delta = (long double)presentframedata[i] - mean;
+		rms += delta*delta;
+	}
+
+	rms = sqrt(rms/((long double)(totalframes-1)));
+
+	words  = wstring(L"Mean: ") + to_wstring(mean) + wstring(L"\n");
+	words += wstring(L"RMS: ") + to_wstring(rms) + wstring(L"\n");
+	words += wstring(L"Max: ") + to_wstring(max) + wstring(L"\n");
+	words += wstring(L"Min: ") + to_wstring(min);
+
+	MessageBox(NULL, words.c_str(), L"Frame statistics", MB_OK);
+
+
+	SAFE_RELEASE(MBps);
+	SAFE_RELEASE(MBbuffer);
+	SAFE_RELEASE(MBres);
+	SAFE_RELEASE(MBtex);
+	SAFE_RELEASE(MBBlend);
+
 	SAFE_RELEASE(HDRps);
 	SAFE_RELEASE(HDRbuffer);
 	SAFE_RELEASE(HDRres);
 	SAFE_RELEASE(HDRtex);
-	/*
-	SAFE_RELEASE(vs);
-	SAFE_RELEASE(ps);
 
-	SAFE_RELEASE(Lightshader);
-	*/
 	SAFE_RELEASE(RTbuffer);
 	SAFE_RELEASE(RTtex);
 	SAFE_RELEASE(RTres);

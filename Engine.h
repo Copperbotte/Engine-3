@@ -78,7 +78,7 @@ struct TextureData
 //Engine stage functions
 bool Init(ID3D11Device*, ID3D11DeviceContext*, IDXGISwapChain*);
 bool Think();
-bool Render(MODELID*, MODELID*);
+bool Render(bool, MODELID*, MODELID*);
 void End();
 
 //engine premade functions
@@ -109,11 +109,14 @@ ID3D11PixelShader	    *LoadPixelShader(LPCWSTR File, LPCSTR Function, LPCSTR For
 unsigned long xorshf96(void);
 double xorshfdbl(void);
 unsigned long *xorshfdata(void);
+unsigned long long GetTimeHns(); // Time in 100 nanoseconds
 unsigned int Animate(unsigned long Time,double Interval,unsigned int Frames);
 double Wrap(double Input, double Min, double Max);
 bool Clamp(int*, int Min, int Max);
 bool Clamp(float*, float Min, float Max);
 bool Clamp(double*, double Min, double Max);
+
+void TriangleIntersect();
 
 struct Particle
 {

@@ -19,6 +19,7 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	uint LightNum;
 	uint SelectedLight;
 	float2 UVScale;
+	uint framenum;
 };
 
 struct LightInfo

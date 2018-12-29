@@ -7,9 +7,9 @@ ID3D11Device *_d3ddev;
 ID3D11DeviceContext *_devcon;
 D3D11_VIEWPORT vp;
 
-unsigned long InitTime;
-unsigned long CurTime;
-unsigned long PrevTime;
+unsigned long long InitTime;
+unsigned long long CurTime;
+unsigned long long PrevTime;
 float Time;
 
 //Think
@@ -19,7 +19,7 @@ XMMATRIX World;
 XMFLOAT2 UVScale;
 
 //Render
-ParticleSystem PS;
+//ParticleSystem PS;
 
 //Shaders
 ID3D11VertexShader *vs;
@@ -56,6 +56,7 @@ struct
 	unsigned int LightNum;
 	unsigned int SelectedLight;
 	XMFLOAT2 UVScale;
+	unsigned int framenum;
 } ConstantBuffer;
 
 struct LightInfo
@@ -202,19 +203,15 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		return false;
 	}
 
-	XMFLOAT3 Colors[6] = 
-	{
-		XMFLOAT3(1.0,0.0,0.0), // XMFLOAT3(1.0,0.5,0.0),
-		XMFLOAT3(1.0,1.0,0.0),
-		XMFLOAT3(0.0,1.0,0.0),
-		XMFLOAT3(0.0,1.0,1.0),
-		XMFLOAT3(0.0,0.0,1.0),
-		XMFLOAT3(1.0,0.0,1.0),
-	};
-	ConstantBuffer.LightNum = 6;
-
-	InitTime = CurTime = PrevTime = GetTickCount();
+	FILETIME ft;
+	GetSystemTimeAsFileTime(&ft);
+	ULARGE_INTEGER li;
+	li.LowPart = ft.dwLowDateTime;
+	li.HighPart = ft.dwHighDateTime;
+	InitTime = CurTime = PrevTime = GetTimeHns();
 	Time = 0.0;
+
+	TriangleIntersect();
 
 	return true;
 }
@@ -225,19 +222,20 @@ bool Think()
 	const float PI = 3.141592;
 	
 	PrevTime = CurTime;
-	CurTime = GetTickCount();
-	const unsigned long framelimit = 8/1000;//120hz
-	while(CurTime - PrevTime < framelimit)
-		CurTime = GetTickCount();
+	CurTime = GetTimeHns();
 
-	Time = ((float)(CurTime - InitTime)) / 1000.0f;
+	//const unsigned long framelimit = 8/1000;//120hz
+	//while(CurTime - PrevTime < framelimit)
+	//	CurTime = GetTickCount();
+
+	Time = ((float)(CurTime - InitTime)) / 10000000.0f; // 100 nanoseconds to seconds
 	//Time = 0.5;
 	Key.Update();
 
 	float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
 	float cam_height = sin(cam_rotation * PI) * 0.4;
 	
-	float WorldRotation = Time/3.0f;
+	float WorldRotation = 0*Time/3.0f;
 
 	XMMATRIX View = XMMatrixRotationY(WorldRotation)*XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
@@ -262,6 +260,9 @@ bool Think()
 	ConstantBuffer.LightNum = 6;
 
 	float theta = -Time;//*4.0/3.0;
+	if(Key('Q'))
+		theta *= 10.0;
+
 	for(int i=0;i<6;++i)
 	{
 		LightBuffer.Lights[i].Color = Colors[i];
@@ -337,17 +338,6 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Cubemodel);
 
-	Particle *Next = PS.Root;
-	for(int i=0;i<PS.Alive;++i)
-	{
-		ConstantBuffer.World = XMMatrixTranslation(Next->Pos[0],Next->Pos[1],Next->Pos[2]);
-		_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-		Draw(*Cubemodel);
-		Next = Next->Next;
-	}
-
-
-
 	//Draw floor
 	ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
 		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
@@ -371,7 +361,7 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 	return true;
 }
 
-bool Render(MODELID *Screenmodel, MODELID *Cubemodel)
+bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 {
 	////////////////////////////////////////////////////////////////////////
 	//////////////////////////////////// Render ////////////////////////////
