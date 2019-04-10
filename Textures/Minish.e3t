@@ -1,0 +1,26 @@
+Albedo
+src "minish.jpg"
+range 0 1
+
+Normal
+src "MetalTile Normal.png"
+range -1 1
+
+Reflectivity
+src "MetalTile Gloss.png"
+range 0 0.1
+
+Specular
+src "MetalTile Specular.png"
+range 1 30
+
+Transparency
+src "MetalTile Albedo.png"
+range 0 0 
+
+Emission
+src "MetalTile Gloss.png"
+range 0 0 
+
+Height
+range 0 0

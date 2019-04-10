@@ -19,7 +19,14 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	uint LightNum;
 	uint SelectedLight;
 	float2 UVScale;
-	uint framenum;
+	float Time;
+	float Exposure;
+};
+
+cbuffer cbmb : register(b0)
+{ // 16 BYTE intervals
+	float framenum;
+	uint padding3[3];
 };
 
 struct LightInfo
@@ -38,6 +45,7 @@ cbuffer LightBuffer : register(b1)
 Texture2D RT : register(t0); // Render target
 Texture2D surface[7] : register(t1);
 Texture2D PT[2] : register(t8);
+TextureCube Cubemap : register(t10);
 SamplerState Sampler : register(s0);
 
 float3 SampleTexture(uint Tex, float2 UV)
@@ -76,7 +84,11 @@ PIn VS(VIn In)
 {
 	PIn Out;
 	
-	Out.Tex = In.Tex.xy * UVScale;
+	int Frame = (int)(Time * 10.0) % 16;
+	float FP = (float)Frame;
+	
+	//Out.Tex = (In.Tex.xy * UVScale + float2(FP, 0.0)) * float2(1.0 / 16.0 ,1.0);
+	Out.Tex = In.Tex.xy * UVScale;// + Time * float2(3,0);
 	
 	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
 	Out.Pos = mul(ViewProj,Out.wPos);
@@ -114,6 +126,18 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 	return Out;
 }
 
+float3 LightHarmonics(float3 Ambient, float3 NormalVec, float3 ViewVec, material Mat, float3x3 tanspace)
+{
+	const float PI = 3.141592;
+	const float E = 2.718282;
+	
+	float3 Y10 = srgb2photon(float3(0.25,1,0.25)) - Ambient;
+	
+	float3 ReflVec = -ViewVec + NormalVec*2*dot(ViewVec,NormalVec)/dot(NormalVec,NormalVec);
+	//return saturate(dot(ReflVec,NormalVec));
+	return -Y10 * mul(ReflVec,tanspace).z;	
+}
+
 float3 Transmit(float3 StartColor, float3 FogColor, float3 Transparency, float dist)
 {
 	const float PI = 3.141592;
@@ -135,6 +159,8 @@ float4 PS(PIn In) : SV_TARGET
 	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
 	float3 View = vPos - In.wPos.xyz;
 	float Viewdist = sqrt(dot(View, View));
+	
+	float3 buttview = View;
 	
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
 									 In.Bin,	//normalize(In.Bin), //
@@ -161,6 +187,9 @@ float4 PS(PIn In) : SV_TARGET
 	
 	float3 Out = Ambient;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
+	
+	//float3 fucku = LightHarmonics(Ambient, Normal, View, Mat, Tangentspace)/ 10.0;
+	//return float4(fucku,1.0);
 	
 	//Out *= 0;
 	
@@ -200,6 +229,22 @@ float4 PS(PIn In) : SV_TARGET
 	
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
+	
+	Out *= Exposure;
+
+	Normal = mul(transpose(Tangentspace), Normal);
+	float3x3 cuberotate = float3x3(float3(1,0,0),
+									float3(0,0,1),
+									float3(0,-1,0));
+	
+	if(dot(buttview, Normal) > 0.0)
+	{
+		float3 reflected = -reflect(buttview, Normal);
+		Out = srgb2photon(Cubemap.SampleLevel(Sampler, reflected, 0).rgb);//reflect(buttview, In.Norm)).rgb));
+	}
+	else
+		Out = float4(0,0,0,1);
+	
 	
 	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 	return float4(Out,1.0);
@@ -242,7 +287,7 @@ SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
 float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 {
 	float4 Out = RT.Sample(Sampler, In.tex);
-	Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the dark scene without hdr, 0.1 for bright
+	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the dark scene without hdr, 0.1 for bright
 	//Out.xyz /= Out.xyz + 1.0;
 	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
 }
@@ -257,5 +302,5 @@ float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
 float4 MB_PS(SRGBPOST_PIN In) : SV_TARGET
 {
 	float4 sam = RT.Sample(Sampler, In.tex);
-	return float4(sam.xyz/1.0, sam.a);
+	return float4(sam.xyz, sam.a);///framenum)
 }
