@@ -6,10 +6,12 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
 	float4x4 World;
 	float4x4 ViewProj;
+	float4x4 View_;
+	float4 Focus;
 	float4 Screen2WorldU; // Should be a 4x2
 	float4 Screen2WorldV;
 	float4 Screen2WorldOrigin;
-	//float4x4 Screen2World;
+	float4x4 Screen2World;
 	float4x4 PTViewProj;
 	float4 PTS2WU; // same as screen 2 world
 	float4 PTS2WV;
@@ -19,7 +21,8 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	uint LightNum;
 	uint SelectedLight;
 	float2 UVScale;
-	uint framenum;
+	float Time;
+	float Exposure;
 };
 
 struct LightInfo
@@ -33,7 +36,7 @@ struct LightInfo
 cbuffer LightBuffer : register(b1)
 { // 16 byte intervals divided by sizeof float (4) = 4 floats per interval
 	LightInfo Lights[100];
-}
+};
 
 struct PIn
 {
@@ -55,7 +58,7 @@ float3 Transmit(float3 StartColor, float3 FogColor, float3 Transparency, float d
 
 float4 PS(PIn In) : SV_TARGET
 {
-	float3 Out = Lights[SelectedLight].Color;
+	float3 Out = Lights[SelectedLight].Color * Exposure;
 	/*
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;

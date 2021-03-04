@@ -25,6 +25,7 @@ XMFLOAT2 UVScale;
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
 ID3D11PixelShader *Lightshader;
+ID3D11PixelShader *Skyboxshader;
 
 ID3D11Buffer *cbuffer[2];
 ID3D11SamplerState *TextureSampler;
@@ -40,13 +41,18 @@ ID3D11ShaderResourceView *PTemissive;
 ID3D11PixelShader *PTps;
 D3D11_VIEWPORT PTviewport;
 
+float position[2];
+
 struct
 { // 16 BYTE intervals
 	XMMATRIX World;
 	XMMATRIX ViewProj;
+	XMMATRIX View_;
+	XMFLOAT4 Focus;
 	XMFLOAT4 Screen2WorldU; // Should be a 4x2
 	XMFLOAT4 Screen2WorldV;
 	XMFLOAT4 Screen2WorldOrigin;
+	XMMATRIX Screen2World;
 	XMMATRIX PTViewProj;
 	XMFLOAT4 PTS2WU; // same as screen 2 world
 	XMFLOAT4 PTS2WV;
@@ -56,7 +62,8 @@ struct
 	unsigned int LightNum;
 	unsigned int SelectedLight;
 	XMFLOAT2 UVScale;
-	unsigned int framenum;
+	float Time;
+	float Exposure;
 } ConstantBuffer;
 
 struct LightInfo
@@ -71,6 +78,13 @@ struct
 { // 16 BYTE intervals
 	LightInfo Lights[100];
 } LightBuffer;
+
+const int cubelen = 1000;
+float cubetheta[cubelen];
+float cubepsi[cubelen];
+
+ID3D11ShaderResourceView *Cubemapres;
+ID3D11Texture2D *Cubemaptex;
 
 bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 {
@@ -99,8 +113,9 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
 	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
+	Skyboxshader = LoadPixelShader(L"Skyboxshader.fx","PS","ps_5_0", false);
 
-	PTps = LoadPixelShader(L"SimpleShader.fx", "PTPS", "ps_5_0", false);
+	PTps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(ps, 0, 0);
@@ -126,10 +141,12 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		L"Textures/MetalTile.e3t",
 		L"Textures/Portal.e3t",
 		L"Textures/gimmick.e3t",
-		L"Textures/fancy_chair.e3t"
+		L"Textures/fancy_chair.e3t",
+		L"Textures/metal-splotchy.e3t",
+		L"Textures/minish.e3t",
 	};
-
-	Mat = LoadTextureSet(texlocations[1]);
+	
+	Mat = LoadTextureSet(texlocations[0]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -195,7 +212,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	PTviewport.MaxDepth = 1.0f;
 
 	HRESULT PTError = S_OK;
-	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);
+	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);//mini ion.png", &PTError);//
 	if(PTError == D3D11_ERROR_FILE_NOT_FOUND)
 	{
 		MessageBox(NULL, L"Projected texture not found", L"error", MB_OK | MB_ICONERROR);
@@ -213,10 +230,45 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 
 	TriangleIntersect();
 
+	position[0] = 0.0;
+	position[1] = 0.0;
+
+	UVScale = XMFLOAT2(1.0,1.0);
+
+	for(int i=0;i<cubelen;++i)
+	{
+		cubetheta[i] = xorshfdbl();
+		cubepsi[i] = xorshfdbl();
+	}
+
+	D3DX11_IMAGE_LOAD_INFO loadSMInfo;
+	loadSMInfo.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+	HRESULT Hr = D3DX11CreateTextureFromFile(_d3ddev, L"Textures/cubemaps/desertcube.dds", &loadSMInfo, 0, (ID3D11Resource**)&Cubemaptex, 0);
+	
+	D3D11_TEXTURE2D_DESC TexDesc;
+	Cubemaptex->GetDesc(&TexDesc);
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC SMViewDesc;
+	SMViewDesc.Format = TexDesc.Format;
+	SMViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
+	SMViewDesc.TextureCube.MipLevels = TexDesc.MipLevels;
+	SMViewDesc.TextureCube.MostDetailedMip = 0;
+
+	Hr = _d3ddev->CreateShaderResourceView(Cubemaptex, &SMViewDesc, &Cubemapres);
+
+	_devcon->PSSetShaderResources(10, 1, &Cubemapres);
+
 	return true;
 }
 
+float rate = 1.0;
+float theta = 0.0;
+float tunnelrate = 1.0;
+float tunnelpos = 0.0;
 
+float cam_rotation = 0.0;
+float Exposure_Exp = 0.0;
+float SPHEREPOWER = 1.0;
 bool Think()
 {
 	const float PI = 3.141592;
@@ -229,24 +281,69 @@ bool Think()
 	//	CurTime = GetTickCount();
 
 	Time = ((float)(CurTime - InitTime)) / 10000000.0f; // 100 nanoseconds to seconds
+	float dt = ((float)(CurTime - PrevTime)) / 10000000.0f;
 	//Time = 0.5;
 	Key.Update();
 
-	float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
+	if(Key(VK_LEFT))
+		position[0] -= 1.0*dt;
+	if(Key(VK_RIGHT))
+		position[0] += 1.0*dt;
+	if(Key(VK_UP))
+		position[1] += 1.0*dt;
+	if(Key(VK_DOWN))
+		position[1] -= 1.0*dt;
+
+	XMMATRIX CubeTranslate = XMMatrixTranslation(-position[0], 0, position[1]);
+
+	float dExposure = 0.0;
+	if(Key('O'))
+		dExposure += 1.0;
+	if(Key('L'))
+		dExposure -= 1.0;
+
+	Exposure_Exp += dExposure * dt;
+
+	ConstantBuffer.Exposure = pow(10.0f,Exposure_Exp);
+
+	float SPR = 1.0;
+	if(Key('U'))
+		SPR = 100.0;
+	SPHEREPOWER += 10.0*(SPR - SPHEREPOWER)*dt;
+
+	//float cam_rotation = 0.5; // 0 for standard view, 0.5 for cool view
+	float crt = 0.5;
+
+	if(Key('C'))
+		crt -= 0.5;
+	if(Key('V'))
+		crt += 0.5;
+
+	cam_rotation += 10.0*(crt - cam_rotation)*dt;
+
 	float cam_height = sin(cam_rotation * PI) * 0.4;
-	
+
 	float WorldRotation = 0*Time/3.0f;
 
-	XMMATRIX View = XMMatrixRotationY(WorldRotation)*XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
+	XMMATRIX View = CubeTranslate*
+					XMMatrixRotationY(WorldRotation)*
+					XMMatrixRotationX(cam_rotation*PI/2.0)*
+					XMMatrixTranslation(0.0f,cam_height,-5.0f);
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
 	ViewProj = View*Proj;
+	ConstantBuffer.View_ = View;
 
 	World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(0.0*Time/3.0f);
 
-	if(Key(VK_SPACE))
-		UVScale = XMFLOAT2(3.0,3.0);
+	float uvtarget = 1.0;
+
+	if(Key(VK_SPACE))	
+		uvtarget = 0.5;
 	else
-		UVScale = XMFLOAT2(1.0,1.0);
+		uvtarget = 1.0;
+
+	uvtarget = UVScale.x + 10.0*(uvtarget - UVScale.x)*dt;
+	UVScale = XMFLOAT2(uvtarget,uvtarget);
 
 	XMFLOAT3 Colors[6] = 
 	{
@@ -257,16 +354,42 @@ bool Think()
 		XMFLOAT3(0.0,0.0,1.0),
 		XMFLOAT3(1.0,0.0,1.0),
 	};
-	ConstantBuffer.LightNum = 6;
+	ConstantBuffer.LightNum = 6;//6 * 4;
 
-	float theta = -Time;//*4.0/3.0;
+	float targetrate = 1.0;
 	if(Key('Q'))
-		theta *= 10.0;
+		targetrate = 10.0;
 
-	for(int i=0;i<6;++i)
+	rate += (targetrate-rate)*dt;
+	theta += -rate*dt;
+
+	targetrate = 1.0;
+	if(Key('W'))
+		targetrate = 10.0;
+	tunnelrate += (targetrate - tunnelrate)*dt;
+	tunnelpos += tunnelrate * dt;
+	if(tunnelpos > 10.0)
+		tunnelpos -= 10.0;
+
+	//float theta = -rate*Time;//*4.0/3.0;
+	//if(Key('Q'))
+	//	theta *= 10.0;
+
+	for(int i=0;i<ConstantBuffer.LightNum;++i)
 	{
-		LightBuffer.Lights[i].Color = Colors[i];
-		float dtheta = PI * 2.0*((float)i)/6.0;
+		int div = ConstantBuffer.LightNum / 6;
+		if(div == 0) div = 1;
+		float fdiv = (float)div;
+
+		float bc[3] = {0};
+		float m = (float)(i%div) / fdiv;
+		int l = i/div;
+		bc[0] = ((Colors[(l+1)%6].x - Colors[l].x)*m + Colors[l].x) / fdiv;
+		bc[1] = ((Colors[(l+1)%6].y - Colors[l].y)*m + Colors[l].y) / fdiv;
+		bc[2] = ((Colors[(l+1)%6].z - Colors[l].z)*m + Colors[l].z) / fdiv;
+
+		LightBuffer.Lights[i].Color = bc;//Colors[l];//
+		float dtheta = PI * 2.0*((float)i)/(float)ConstantBuffer.LightNum;
 		float rad = 2.0f; //0.5f;
 		float hai = 0.0f; //2.0f;
 		LightBuffer.Lights[i].Position = XMFLOAT3(rad*sin(theta+dtheta),hai,rad*cos(theta+dtheta));
@@ -283,6 +406,9 @@ bool Think()
 	//ConstantBuffer.PTViewProj *= XMMatrixOrthographicRH(2.0,2.0,0.0,1000.0);
 
 	//ViewProj = ConstantBuffer.PTViewProj;
+
+	ConstantBuffer.Time = Time;
+
 	return true;
 }
 
@@ -291,6 +417,10 @@ bool PrepRender()
 	/////////////////////////////////////////////////////////
 	//////////////// Compute inverse data ///////////////////
 	/////////////////////////////////////////////////////////
+
+	XMMATRIX View2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.View_),ConstantBuffer.View_);
+	XMVECTOR Focus_ = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),View2World);
+	XMStoreFloat4(&ConstantBuffer.Focus, Focus_);
 
 	XMMATRIX Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
 	XMVECTOR sOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),Screen2World);
@@ -302,6 +432,7 @@ bool PrepRender()
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldOrigin,sOrigin);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
+	ConstantBuffer.Screen2World = Screen2World;
 
 	XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
 	ConstantBuffer.PTInverse = PTS2W;
@@ -327,22 +458,60 @@ bool PrepRender()
 	return true;
 }
 
-bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS)
+bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS, ID3D11PixelShader *SkyPS)
 {
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(WorldPS, 0, 0);
 
 	//Draw cube
 	ConstantBuffer.UVScale = UVScale;
-	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f);//*XMMatrixTranslation(0.1*sin(Time*10.0),0,0.1*cos(Time*10.0));
+	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f) * XMMatrixRotationY(Time/3.0);
+	//XMMatrixTranslation(-0.5f + position[0],-0.5f,-0.5f - position[1]);
+	//*XMMatrixTranslation(0.1*sin(Time*10.0),0,0.1*cos(Time*10.0));
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Cubemodel);
+	/*
+	float speed = 10.0;
+	//float dist = 10.0;
+	//float ti = speed/dist;
+	//int it = Time*ti;
+	//float t = Time - (float)it/ti;
+	float t = tunnelpos;
+	for(unsigned int i=0;i<30;++i)
+	{
+		ConstantBuffer.World = XMMatrixTranslation(-0.5f - 1.0,-0.5f,-0.5f + 5 + t - (float)i);
+		_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+		Draw(*Cubemodel);
+	}
+	*/
+
+	float r = 1.0;
+	float p = 3.1415926535897932384626433832795;
+
+	//Draw cubes around sphere
+	ConstantBuffer.UVScale = UVScale;
+	for(int i=0;i<cubelen;++i)
+	{
+		//float theta = 0.5*asin(pow(cubetheta[i],1.0f/SPHEREPOWER)); //lambertian cosine
+		float theta = acos(pow(cubetheta[i], 1.0f/SPHEREPOWER)); // sphereical coordinates
+		//float theta = cubetheta[i] * p / 2.0; // no coordinate adjustment
+		float psi = cubepsi[i] * 2.0 * p;
+
+		ConstantBuffer.World = XMMatrixScaling(0.05,0.05,0.05)*
+			XMMatrixTranslation(r*sin(theta)*cos(psi) + 2.0,
+								r*cos(theta),
+								r*sin(theta)*sin(psi) - 2.0)*//*//*sin(acos(cubetheta[i]*p))
+		XMMatrixTranslation(0,-0.5f,0);//*XMMatrixTranslation(0.1*sin(Time*10.0),0,0.1*cos(Time*10.0));
+		_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+		Draw(*Cubemodel);
+	}
+	float t = 0;
 
 	//Draw floor
-	ConstantBuffer.World = XMMatrixScaling(10,10,10) // Scale larger
+	ConstantBuffer.World = XMMatrixScaling(20,20,20) // Scale larger
 		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
-		*XMMatrixTranslation(0,-0.5f,0.0); // Translate to floor
-	ConstantBuffer.UVScale = XMFLOAT2(20,20);
+		*XMMatrixTranslation(0,-0.5f,0.0 + t); // Translate to floor
+	ConstantBuffer.UVScale = XMFLOAT2(40,40);
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Screenmodel);
 
@@ -358,6 +527,13 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 		Draw(*Cubemodel);
 	}
 
+	//Draw backbuffer
+	_devcon->PSSetShader(SkyPS, 0, 0);
+	ConstantBuffer.World = ConstantBuffer.Screen2World;
+	//ConstantBuffer.ViewProj *= XMMatrixTranslation(0,0,0.999);
+	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+	//Draw(*Screenmodel);
+
 	return true;
 }
 
@@ -367,6 +543,8 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	//////////////////////////////////// Render ////////////////////////////
 	////////////////////////////////////////////////////////////////////////
 	
+	_devcon->PSSetConstantBuffers(0, 2, cbuffer);
+
 	//float backgroundcolor[4] = {0.0f,0.1576308701504295f,0.34919021262829386f,1.0f}; // {0.0,0.5,1.0} * 0.1photon
 	float backgroundcolor[4] = {0.0f,0.021184398483544597f,0.1f,1.0f}; // ambient
 	//float backgroundcolor[4] = {1.0f,1.0f,1.0f,1.0f}; // fog
@@ -382,7 +560,7 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	if(!PrepRender())
 		return false;
 	
-
+	/*
 	_devcon->OMSetRenderTargets(1, &PTbuffer, PTzbuffer);
 	_devcon->ClearRenderTargetView(PTbuffer, PTclear);
 	_devcon->ClearDepthStencilView(PTzbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -390,9 +568,9 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	
 	ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps))
+	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps, PTps))
 		return false;
-	
+	*/
 	
 	_devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
 	_devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
@@ -402,7 +580,7 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	_devcon->PSSetShaderResources(9, 1, &PTres);
 	ConstantBuffer.ViewProj = ViewProj;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader))
+	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader, Skyboxshader))
 		return false;
 
 	return true;
@@ -411,7 +589,10 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 
 void End()
 {
-	
+
+	SAFE_RELEASE(Cubemaptex);
+	SAFE_RELEASE(Cubemapres);
+
 	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
 		SAFE_RELEASE(Mat.Textures[i]);
 	SAFE_RELEASE(TextureSampler);
@@ -430,6 +611,7 @@ void End()
 	SAFE_RELEASE(ps);
 
 	SAFE_RELEASE(Lightshader);
+	SAFE_RELEASE(Skyboxshader);
 }
 
 

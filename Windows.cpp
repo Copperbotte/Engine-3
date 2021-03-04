@@ -47,6 +47,13 @@ ID3D11Texture2D *MBtex; // needed for mip generation
 ID3D11ShaderResourceView *MBres;
 ID3D11PixelShader *MBps;
 ID3D11BlendState *MBBlend;
+ID3D11Buffer *MBcbuffer;
+
+struct
+{ // 16 BYTE intervals
+	float framenum;
+	unsigned int padding[3];
+} MBcbuffer_s;
 
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
@@ -240,6 +247,15 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	HDRps = LoadPixelShader(L"SimpleShader.fx", "HDR_LUMEN_PS", "ps_5_0", false);
 	MBps = LoadPixelShader(L"SimpleShader.fx", "MB_PS", "ps_5_0", false);
 
+	D3D11_BUFFER_DESC cbbd;
+	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
+	cbbd.Usage = D3D11_USAGE_DEFAULT;
+	cbbd.ByteWidth = sizeof(MBcbuffer_s);
+	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	cbbd.CPUAccessFlags = 0;
+	cbbd.MiscFlags = 0;
+	HRESULT res = d3ddev->CreateBuffer(&cbbd,NULL,&MBcbuffer);
+
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
 	////////////////////////////////////////////////////////////////////////////
@@ -399,6 +415,10 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		////////////////////////////////////////////////////////////////////////
 
 		//Add frames until framerate limit
+		MBcbuffer_s.framenum = (float)(++frames);
+		devcon->UpdateSubresource(MBcbuffer, 0, NULL, &MBcbuffer_s, 0, 0);
+		devcon->PSSetConstantBuffers(0, 1, &MBcbuffer);
+		
 		devcon->OMSetRenderTargets(1, &MBbuffer, zbuffer);
 		devcon->OMSetBlendState(MBBlend, NULL, 0xffffffff);
 		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -412,7 +432,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		Draw(Screenmodel);
 
-		++frames;
 		CurTime = GetTimeHns();
 
 		if(totalframes < 100000)
@@ -421,7 +440,9 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			++totalframes;
 		}
 
-		unsigned long interval = 10000000/120;//66; 
+		unsigned long interval = 0*10000000/120;//66; 
+		//interval = 10000000/30;
+		interval = 10000000 / 240;
 
 		if(interval < CurTime - PrevFrame)
 		{
@@ -455,18 +476,12 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 			PrevFrame = CurTime;
 			frames = 0;
-			if(CurTime - InitTime > 5000*10000)
-				break;
+			//if(CurTime - InitTime > 5000*10000)
+			//	break;
 
 		}
 
 		swapchain->Present(0, 0);
-			
-		//float clear[4] =  {0,0,0,1};
-		//devcon->ClearRenderTargetView(MBbuffer, clear);
-
-
-		
 	}
 
 	End();
@@ -508,6 +523,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	SAFE_RELEASE(MBres);
 	SAFE_RELEASE(MBtex);
 	SAFE_RELEASE(MBBlend);
+	SAFE_RELEASE(MBcbuffer);
 
 	SAFE_RELEASE(HDRps);
 	SAFE_RELEASE(HDRbuffer);
