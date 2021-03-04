@@ -29,32 +29,6 @@ ID3D11RasterizerState *Rasta;
 ID3D11RasterizerState *DisplayRaster;
 ID3D11BlendState *Blenda;
 
-//Render target
-ID3D11RenderTargetView *RTbuffer;
-ID3D11ShaderResourceView *RTres;
-ID3D11VertexShader *RTvs;
-ID3D11PixelShader *RTps;
-
-//hdr
-ID3D11RenderTargetView *HDRbuffer;
-ID3D11Texture2D *HDRtex; // needed for mip generation
-ID3D11ShaderResourceView *HDRres;
-ID3D11PixelShader *HDRps;
-
-//Motion blur
-ID3D11RenderTargetView *MBbuffer;
-ID3D11Texture2D *MBtex; // needed for mip generation
-ID3D11ShaderResourceView *MBres;
-ID3D11PixelShader *MBps;
-ID3D11BlendState *MBBlend;
-ID3D11Buffer *MBcbuffer;
-
-struct
-{ // 16 BYTE intervals
-	float framenum;
-	unsigned int padding[3];
-} MBcbuffer_s;
-
 int WINAPI WinMain(HINSTANCE hInstance,
 				   HINSTANCE hPrevInstance,
 				   PSTR sxCmdLine,
@@ -140,61 +114,25 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	devcon->RSSetViewports(1, &viewport);
 
 	// Depth buffer
-	D3D11_TEXTURE2D_DESC RTDesc, dsd, HDRDesc;
-	D3D11_RENDER_TARGET_VIEW_DESC RTVD;
-	D3D11_SHADER_RESOURCE_VIEW_DESC svd;
-	ZeroMemory(&RTDesc,sizeof(D3D11_TEXTURE2D_DESC));
-	ZeroMemory(&RTVD,sizeof(D3D11_RENDER_TARGET_VIEW_DESC));
-	ZeroMemory(&svd,sizeof(D3D11_SHADER_RESOURCE_VIEW_DESC));
-	RTDesc.Width = WINWIDTH;
-	RTDesc.Height = WINHEIGHT;
-	RTDesc.MipLevels = (int)ceil(log((double)WINWIDTH)/log(2.0));
-	RTDesc.ArraySize = 1; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
-	RTDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	RTDesc.SampleDesc.Count = 1;
-	RTDesc.SampleDesc.Quality = 0;
-	RTDesc.Usage = D3D11_USAGE_DEFAULT;
-	RTDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-	RTDesc.CPUAccessFlags = 0;
-	RTDesc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-	RTVD.Format = RTDesc.Format;
-	RTVD.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	RTVD.Texture2D.MipSlice = 0;
-	svd.Format = RTVD.Format;
-	svd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	svd.Texture2D.MostDetailedMip = 0;
-	svd.Texture2D.MipLevels = RTDesc.MipLevels;
+	D3D11_TEXTURE2D_DESC dsd;
 
-	// Temporary textures to set the render target to the backbuffer and RTbuffer
-	ID3D11Texture2D *RTtex, *zbuffertex, *MBtex;
+	ZeroMemory(&dsd,sizeof(D3D11_TEXTURE2D_DESC));
+	ID3D11Texture2D *zbuffertex;
 
-	HDRDesc = RTDesc;
-	RTDesc.MipLevels = 0;
-	HDRDesc.ArraySize = 1;
-
-	dsd = HDRDesc;
+	dsd.Width = WINWIDTH;
+	dsd.Height = WINHEIGHT;
+	dsd.MipLevels = (int)ceil(log((double)WINWIDTH) / log(2.0));
+	dsd.ArraySize = 1; // Alb, Ref, Pow, wPos, Norm + Tanspace Matrix (3) (3,3,3,3 = 4*3 = 3*4)
 	dsd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	dsd.SampleDesc.Count = 1;
+	dsd.SampleDesc.Quality = 0;
 	dsd.Usage = D3D11_USAGE_DEFAULT;
 	dsd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	dsd.CPUAccessFlags = 0;
 	dsd.MiscFlags = 0;
-
-	d3ddev->CreateTexture2D(&RTDesc, NULL, &RTtex);
-	d3ddev->CreateRenderTargetView(RTtex,&RTVD,&RTbuffer);
-	d3ddev->CreateShaderResourceView(RTtex,&svd,&RTres);
-
-	d3ddev->CreateTexture2D(&HDRDesc, NULL, &HDRtex);
-	d3ddev->CreateRenderTargetView(HDRtex,&RTVD,&HDRbuffer);
-	d3ddev->CreateShaderResourceView(HDRtex,&svd,&HDRres);
-
-	d3ddev->CreateTexture2D(&RTDesc, NULL, &MBtex);
-	d3ddev->CreateRenderTargetView(MBtex,&RTVD,&MBbuffer);
-	d3ddev->CreateShaderResourceView(MBtex,&svd,&MBres);
-
 	d3ddev->CreateTexture2D(&dsd, NULL, &zbuffertex);
 	d3ddev->CreateDepthStencilView(zbuffertex, NULL, &zbuffer);
 
-	SAFE_RELEASE(RTtex);
-	SAFE_RELEASE(MBtex);
 	SAFE_RELEASE(zbuffertex);
 
 	devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -216,10 +154,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	d3ddev->CreateBlendState(&blendesc, &Blenda);
 	devcon->OMSetBlendState(Blenda, NULL, 0xffffffff); // what the shit
 
-	rtbd.DestBlend = D3D11_BLEND_ONE; // additive blending
-	blendesc.RenderTarget[0] = rtbd;
-	d3ddev->CreateBlendState(&blendesc, &MBBlend);
-
 	D3D11_RASTERIZER_DESC rastadec;
 	ZeroMemory(&rastadec,sizeof(D3D11_RASTERIZER_DESC));
 	rastadec.FillMode = D3D11_FILL_SOLID;//D3D11_FILL_WIREFRAME;//
@@ -240,21 +174,6 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		End();
 		return msg.wParam;
 	}
-	
-	RTvs = LoadVertexShader(L"SimpleShader.fx", "SRGBPOST_VS", "vs_5_0", false);
-	RTps = LoadPixelShader(L"SimpleShader.fx", "SRGBPOST_PS", "ps_5_0", false);
-
-	HDRps = LoadPixelShader(L"SimpleShader.fx", "HDR_LUMEN_PS", "ps_5_0", false);
-	MBps = LoadPixelShader(L"SimpleShader.fx", "MB_PS", "ps_5_0", false);
-
-	D3D11_BUFFER_DESC cbbd;
-	ZeroMemory(&cbbd,sizeof(D3D11_BUFFER_DESC));
-	cbbd.Usage = D3D11_USAGE_DEFAULT;
-	cbbd.ByteWidth = sizeof(MBcbuffer_s);
-	cbbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	cbbd.CPUAccessFlags = 0;
-	cbbd.MiscFlags = 0;
-	HRESULT res = d3ddev->CreateBuffer(&cbbd,NULL,&MBcbuffer);
 
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////// Vertex Buffer initialization /////////////////////
@@ -387,6 +306,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 	unsigned int frames = 0;
 
+	Draw(Screenmodel); // this shouldn't be here, but if it isn't present in this cpp file, it doesn't compile.
+
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
 	unsigned long long InitTime, CurTime, PrevFrame;
@@ -404,7 +325,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		if(!Think())
 			break;
 
-		devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer); // passed into the render function
+		//devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer); // passed into the render function
+		devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
 		devcon->OMSetBlendState(Blenda, NULL, 0xffffffff);
 
 		if(!Render(false, &Screenmodel, &Cubemodel)) // temporary
@@ -413,25 +335,8 @@ int WINAPI WinMain(HINSTANCE hInstance,
 		////////////////////////////////////////////////////////////////////////
 		/////////////////////////////// Postprocess ////////////////////////////
 		////////////////////////////////////////////////////////////////////////
-
-		//Add frames until framerate limit
-		MBcbuffer_s.framenum = (float)(++frames);
-		devcon->UpdateSubresource(MBcbuffer, 0, NULL, &MBcbuffer_s, 0, 0);
-		devcon->PSSetConstantBuffers(0, 1, &MBcbuffer);
 		
-		devcon->OMSetRenderTargets(1, &MBbuffer, zbuffer);
-		devcon->OMSetBlendState(MBBlend, NULL, 0xffffffff);
-		devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		devcon->VSSetShader(RTvs, 0, 0);
-		devcon->HSSetShader(NULL, 0, 0);
-		devcon->DSSetShader(NULL, 0, 0);
-		devcon->GSSetShader(NULL, 0, 0);
-		devcon->PSSetShader(MBps, 0, 0);
-		devcon->PSSetShaderResources(0, 1, &RTres); // Pull from render target
-		devcon->RSSetState(DisplayRaster);
-		devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		Draw(Screenmodel);
-
+		//Add frames until framerate limit
 		CurTime = GetTimeHns();
 
 		if(totalframes < 100000)
@@ -440,52 +345,11 @@ int WINAPI WinMain(HINSTANCE hInstance,
 			++totalframes;
 		}
 
-		unsigned long interval = 0*10000000/120;//66; 
-		//interval = 10000000/30;
-		interval = 10000000 / 240;
-
-		if(interval < CurTime - PrevFrame)
-		{
-			//Convert linear image to log luminosity
-			devcon->OMSetRenderTargets(1, &HDRbuffer, zbuffer);
-			devcon->OMSetBlendState(Blenda, NULL, 0xffffffff);
-			devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			devcon->VSSetShader(RTvs, 0, 0);
-			devcon->HSSetShader(NULL, 0, 0);
-			devcon->DSSetShader(NULL, 0, 0);
-			devcon->GSSetShader(NULL, 0, 0);
-			devcon->PSSetShader(HDRps, 0, 0);
-			devcon->PSSetShaderResources(0, 1, &MBres); // Pull from render target
-			devcon->RSSetState(DisplayRaster);
-			devcon->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			Draw(Screenmodel);
-
-			//Find average log luminosity
-			devcon->GenerateMips(HDRres);
-
-			//Convert from linear to srgb color space and display
-			ID3D11ShaderResourceView *Resources[2] = {MBres, HDRres};
-			devcon->OMSetRenderTargets(1, &backbuffer, zbuffer);
-			devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			devcon->PSSetShader(RTps, 0, 0);
-			devcon->PSSetShaderResources(0, 2, Resources); // pull from hdr target and render target
-			Draw(Screenmodel);
-
-			float clear[4] =  {0,0,0,1};
-			devcon->ClearRenderTargetView(MBbuffer, clear);
-
-			PrevFrame = CurTime;
-			frames = 0;
-			//if(CurTime - InitTime > 5000*10000)
-			//	break;
-
-		}
-
 		swapchain->Present(0, 0);
 	}
 
 	End();
-
+	/*
 	using namespace std;
 	wstring words;
 	long double mean = 0;
@@ -516,25 +380,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 	words += wstring(L"Min: ") + to_wstring(min);
 
 	MessageBox(NULL, words.c_str(), L"Frame statistics", MB_OK);
-
-
-	SAFE_RELEASE(MBps);
-	SAFE_RELEASE(MBbuffer);
-	SAFE_RELEASE(MBres);
-	SAFE_RELEASE(MBtex);
-	SAFE_RELEASE(MBBlend);
-	SAFE_RELEASE(MBcbuffer);
-
-	SAFE_RELEASE(HDRps);
-	SAFE_RELEASE(HDRbuffer);
-	SAFE_RELEASE(HDRres);
-	SAFE_RELEASE(HDRtex);
-
-	SAFE_RELEASE(RTbuffer);
-	SAFE_RELEASE(RTtex);
-	SAFE_RELEASE(RTres);
-	SAFE_RELEASE(RTvs);
-	SAFE_RELEASE(RTps);
+	*/
 
 	SAFE_RELEASE(layoutblob);
 	SAFE_RELEASE(vertlayout);
@@ -579,6 +425,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 }
 
 inline void Draw(MODELID Model)
+//void Draw(MODELID Model)
 {
 	devcon->DrawIndexed(Model.Index_Length,Model.Index_StartPos,Model.Vertex_StartPos);
 }

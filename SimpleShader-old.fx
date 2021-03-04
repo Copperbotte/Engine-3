@@ -155,7 +155,7 @@ float3 LightCookTorrance(float3 LightVec, float3 NormalVec, float3 ViewVec, mate
 // This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
 float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 {
-	//return LightCookTorrance(LightVec, NormalVec, ViewVec, Mat);
+	return LightCookTorrance(LightVec, NormalVec, ViewVec, Mat);
 
 	const float PI = 3.141592;
 	const float E = 2.718282;
@@ -212,7 +212,7 @@ float4 PS(PIn In) : SV_TARGET
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
 									 In.Bin,	//normalize(In.Bin), //
 									 In.Norm);	//normalize(In.Norm)); //
-	Normal = normalize(mul(transpose(Tangentspace), Normal)); // matrix inverse?
+	Normal = normalize(mul(transpose(Tangentspace), Normal));
 	//View = normalize(mul(Tangentspace, normalize(View)));
 	
 	//Normal = normalize(mul(transpose(Tangentspace), float3(0,0,1)));
@@ -259,34 +259,101 @@ float4 PS(PIn In) : SV_TARGET
 	}
 	
 	//Out += Light(normalize(float3(0,1,-3)), Normal, View, Mat);// * float3(1.0,1.0,0.0);
-	
-	//Projected texture / shadowmap
+	/*
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(abs(PTscreen.xy) <= float2(1.0,1.0));
 	if(frustrum)
 	{
-		float2 PTUV = (float2(1,-1)*PTscreen.xy + 1.0) / 2.0;
-		float4 PTCamPos = PT[1].Sample(Sampler, PTUV);
+		float4 PTCamPos = PT[1].Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
 		PTCamPos -= In.wPos;
-		
-		float d2 = dot(PTCamPos.xyz,PTCamPos.xyz);
-		
 		if(dot(PTCamPos.xyz,PTCamPos.xyz) < 0.001)
 		{
-			float4 sam = PT[0].Sample(Sampler, PTUV);
+			float4 sam = PT[0].Sample(Sampler, (float2(1,-1)*PTscreen.xy + 1.0)/2.0);
+			//sam = float4(1,1,1,1);
 			float3 PT_vPos2 = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
 			float3 PT_vPos = mul(PTInverse, float4(PTscreen.xy,0,1)).xyz;
 			float PT_bright = 1.0 / (PTscreen.w);
 			//float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
 			float3 PT_lite = normalize(PT_vPos - In.wPos.xyz);
 			Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
-			
 		}
 	}
+	*/
 	
-	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
-	//return float4(Out,1.0);
+	//Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
+	
+	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
+	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
+	
+	//Normal = mul(transpose(Tangentspace), Normal);
+	/*
+	float3x3 cuberotate = float3x3(float3(1,0,0),
+									float3(0,0,1),
+									float3(0,-1,0));
+	
+	if(dot(View, Normal) > 0.0)
+		Normal = -Normal;
+	
+	float3 spec = 0.0;
+	float3 diff = 0.0;
+	const int samplenum = 5;
+	float f_samplenum = samplenum;
+	int samplecutoff = f_samplenum * Mat.Reflectivity;
+	
+	for(int n=0;n<samplenum;++n)
+	{
+		if(n < samplecutoff) // Specular
+		{
+			
+			
+		}
+		else // Diffuse
+		{
+			float psi =   asin(nrand(In.Tex + float2(0.1,0.0)));
+			float theta = asin(nrand(In.Tex + float2(0.1,0.1)));
+			psi = asin(sqrt(psi));// / 2.0;
+			theta = 2.0 * 3.141592;
+			
+			//psi = 0.0;
+			
+			float2 rdisc = float2(cos(theta),sin(theta));
+			float3 rview = normalize(mul(transpose(Tangentspace), float3(rdisc*sin(psi),cos(psi))));
+			diff += srgb2photon(Cubemap.SampleLevel(Sampler, rview, 0).rgb);//reflect(buttview, In.Norm)).rgb));
+		}
+	}
+	*/
+	//Out = (Mat.Reflectivity * spec + (1.0 - Mat.Reflectivity) * diff) / f_samplenum;
+	
+	
+	/*
+	for(int ix=0;ix<ixn;++ix)
+		for(int iy=0;iy<iyn;++iy)
+		{
+			float3 newnorm = normalize(mul(transpose(Tangentspace), float3(ix-2,iy-2,0))) * 0.1;
+			newnorm *= dot(View, newnorm);
+			newnorm = normalize(newnorm + Normal);
+			if(dot(View, newnorm) > 0.0)
+				newnorm = -newnorm;
+			float3 reflected = -reflect(View, newnorm);
+			sam += srgb2photon(Cubemap.SampleLevel(Sampler, reflected, 0).rgb);//reflect(buttview, In.Norm)).rgb));
+		}
+	
+	//Out += sam;
+	
+	Out += sam * Mat.Reflectivity / ((float)(ixn*iyn));
+	*/
+	//else
+	//	Out = float4(0,0,0,1);
+	
+	//Out = srgb2photon(Cubemap.SampleLevel(Sampler, -View, 0).rgb);
+	
+	Out *= Exposure;
+	
+	//Out.rgb = Normal * 0.5 + 0.5;
+	
+	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
+	return float4(Out,1.0);
 }
 
 // Physically accurate lighting, uses Srgb2Photon.fx

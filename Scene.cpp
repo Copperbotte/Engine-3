@@ -115,7 +115,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
 	Skyboxshader = LoadPixelShader(L"Skyboxshader.fx","PS","ps_5_0", false);
 
-	PTps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
+	PTps = LoadPixelShader(L"SimpleShader.fx", "PTPS", "ps_5_0", false);
 
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(ps, 0, 0);
@@ -560,7 +560,8 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	if(!PrepRender())
 		return false;
 	
-	/*
+	//projected texture
+	
 	_devcon->OMSetRenderTargets(1, &PTbuffer, PTzbuffer);
 	_devcon->ClearRenderTargetView(PTbuffer, PTclear);
 	_devcon->ClearDepthStencilView(PTzbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -570,8 +571,9 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps, PTps))
 		return false;
-	*/
 	
+
+	//final render
 	_devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
 	_devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
 	_devcon->ClearDepthStencilView(zbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -579,6 +581,7 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	_devcon->RSSetViewports(1, &viewport);
 	_devcon->PSSetShaderResources(9, 1, &PTres);
 	ConstantBuffer.ViewProj = ViewProj;
+	//ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader, Skyboxshader))
 		return false;
