@@ -25,6 +25,7 @@ XMFLOAT2 UVScale;
 ID3D11VertexShader *vs;
 ID3D11PixelShader *ps;
 ID3D11PixelShader *Lightshader;
+ID3D11PixelShader *Skyboxshader;
 
 ID3D11Buffer *cbuffer[2];
 ID3D11SamplerState *TextureSampler;
@@ -46,9 +47,12 @@ struct
 { // 16 BYTE intervals
 	XMMATRIX World;
 	XMMATRIX ViewProj;
+	XMMATRIX View_;
+	XMFLOAT4 Focus;
 	XMFLOAT4 Screen2WorldU; // Should be a 4x2
 	XMFLOAT4 Screen2WorldV;
 	XMFLOAT4 Screen2WorldOrigin;
+	XMMATRIX Screen2World;
 	XMMATRIX PTViewProj;
 	XMFLOAT4 PTS2WU; // same as screen 2 world
 	XMFLOAT4 PTS2WV;
@@ -75,7 +79,7 @@ struct
 	LightInfo Lights[100];
 } LightBuffer;
 
-const int cubelen = 10000;
+const int cubelen = 1000;
 float cubetheta[cubelen];
 float cubepsi[cubelen];
 
@@ -109,8 +113,9 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	ps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
 	Lightshader = LoadPixelShader(L"Lightshader.fx","PS","ps_5_0", false);
+	Skyboxshader = LoadPixelShader(L"Skyboxshader.fx","PS","ps_5_0", false);
 
-	PTps = LoadPixelShader(L"SimpleShader.fx", "PTPS", "ps_5_0", false);
+	PTps = LoadPixelShader(L"SimpleShader.fx", "PS", "ps_5_0", false);
 
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(ps, 0, 0);
@@ -141,7 +146,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		L"Textures/minish.e3t",
 	};
 	
-	Mat = LoadTextureSet(texlocations[3]);
+	Mat = LoadTextureSet(texlocations[0]);
 
 	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
 	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
@@ -207,7 +212,7 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 	PTviewport.MaxDepth = 1.0f;
 
 	HRESULT PTError = S_OK;
-	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);
+	PTemissive = LoadTexture(L"Textures/Paintransparent.png",&PTError);//mini ion.png", &PTError);//
 	if(PTError == D3D11_ERROR_FILE_NOT_FOUND)
 	{
 		MessageBox(NULL, L"Projected texture not found", L"error", MB_OK | MB_ICONERROR);
@@ -320,9 +325,13 @@ bool Think()
 
 	float WorldRotation = 0*Time/3.0f;
 
-	XMMATRIX View = CubeTranslate*XMMatrixRotationY(WorldRotation)*XMMatrixRotationX(cam_rotation*PI/2.0)*XMMatrixTranslation(0.0f,cam_height,-5.0f);
+	XMMATRIX View = CubeTranslate*
+					XMMatrixRotationY(WorldRotation)*
+					XMMatrixRotationX(cam_rotation*PI/2.0)*
+					XMMatrixTranslation(0.0f,cam_height,-5.0f);
 	XMMATRIX Proj = XMMatrixPerspectiveRH(1.0f,1.0f*vp.Height/vp.Width,1.0f,1000.0f);
 	ViewProj = View*Proj;
+	ConstantBuffer.View_ = View;
 
 	World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f)*XMMatrixRotationY(0.0*Time/3.0f);
 
@@ -409,6 +418,10 @@ bool PrepRender()
 	//////////////// Compute inverse data ///////////////////
 	/////////////////////////////////////////////////////////
 
+	XMMATRIX View2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.View_),ConstantBuffer.View_);
+	XMVECTOR Focus_ = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),View2World);
+	XMStoreFloat4(&ConstantBuffer.Focus, Focus_);
+
 	XMMATRIX Screen2World = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.ViewProj),ConstantBuffer.ViewProj);
 	XMVECTOR sOrigin = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(0.0,0.0,0.0,1.0)),Screen2World);
 	XMVECTOR sVecU = XMVector4Transform(XMLoadFloat4(&XMFLOAT4(1.0,0.0,0.0,1.0)),Screen2World);
@@ -419,6 +432,7 @@ bool PrepRender()
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldOrigin,sOrigin);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldU,sVecU);
 	XMStoreFloat4(&ConstantBuffer.Screen2WorldV,sVecV);
+	ConstantBuffer.Screen2World = Screen2World;
 
 	XMMATRIX PTS2W = XMMatrixInverse(&XMMatrixDeterminant(ConstantBuffer.PTViewProj),ConstantBuffer.PTViewProj);
 	ConstantBuffer.PTInverse = PTS2W;
@@ -444,14 +458,14 @@ bool PrepRender()
 	return true;
 }
 
-bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS)
+bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *WorldPS, ID3D11PixelShader *LightPS, ID3D11PixelShader *SkyPS)
 {
 	_devcon->VSSetShader(vs, 0, 0);
 	_devcon->PSSetShader(WorldPS, 0, 0);
 
 	//Draw cube
 	ConstantBuffer.UVScale = UVScale;
-	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f);
+	ConstantBuffer.World = XMMatrixTranslation(-0.5f,-0.5f,-0.5f) * XMMatrixRotationY(Time/3.0);
 	//XMMatrixTranslation(-0.5f + position[0],-0.5f,-0.5f - position[1]);
 	//*XMMatrixTranslation(0.1*sin(Time*10.0),0,0.1*cos(Time*10.0));
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
@@ -478,7 +492,9 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 	ConstantBuffer.UVScale = UVScale;
 	for(int i=0;i<cubelen;++i)
 	{
-		float theta = 0.5*asin(2.0*pow(cubetheta[i],1.0f/SPHEREPOWER));
+		//float theta = 0.5*asin(pow(cubetheta[i],1.0f/SPHEREPOWER)); //lambertian cosine
+		float theta = acos(pow(cubetheta[i], 1.0f/SPHEREPOWER)); // sphereical coordinates
+		//float theta = cubetheta[i] * p / 2.0; // no coordinate adjustment
 		float psi = cubepsi[i] * 2.0 * p;
 
 		ConstantBuffer.World = XMMatrixScaling(0.05,0.05,0.05)*
@@ -511,6 +527,13 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 		Draw(*Cubemodel);
 	}
 
+	//Draw backbuffer
+	_devcon->PSSetShader(SkyPS, 0, 0);
+	ConstantBuffer.World = ConstantBuffer.Screen2World;
+	//ConstantBuffer.ViewProj *= XMMatrixTranslation(0,0,0.999);
+	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
+	//Draw(*Screenmodel);
+
 	return true;
 }
 
@@ -537,7 +560,7 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	if(!PrepRender())
 		return false;
 	
-
+	/*
 	_devcon->OMSetRenderTargets(1, &PTbuffer, PTzbuffer);
 	_devcon->ClearRenderTargetView(PTbuffer, PTclear);
 	_devcon->ClearDepthStencilView(PTzbuffer, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -545,9 +568,9 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	
 	ConstantBuffer.ViewProj = ConstantBuffer.PTViewProj;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps))
+	if(!RenderScene(Screenmodel, Cubemodel, PTps, PTps, PTps))
 		return false;
-	
+	*/
 	
 	_devcon->OMSetRenderTargets(1, &RTbuffer, zbuffer);
 	_devcon->ClearRenderTargetView(RTbuffer, backgroundcolor);
@@ -557,7 +580,7 @@ bool Render(bool accumulator_reset, MODELID *Screenmodel, MODELID *Cubemodel)
 	_devcon->PSSetShaderResources(9, 1, &PTres);
 	ConstantBuffer.ViewProj = ViewProj;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader))
+	if(!RenderScene(Screenmodel, Cubemodel, ps, Lightshader, Skyboxshader))
 		return false;
 
 	return true;
@@ -588,6 +611,7 @@ void End()
 	SAFE_RELEASE(ps);
 
 	SAFE_RELEASE(Lightshader);
+	SAFE_RELEASE(Skyboxshader);
 }
 
 

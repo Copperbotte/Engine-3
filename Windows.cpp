@@ -442,6 +442,7 @@ int WINAPI WinMain(HINSTANCE hInstance,
 
 		unsigned long interval = 0*10000000/120;//66; 
 		//interval = 10000000/30;
+		interval = 10000000 / 240;
 
 		if(interval < CurTime - PrevFrame)
 		{

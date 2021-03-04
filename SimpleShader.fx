@@ -6,10 +6,12 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
 	float4x4 World;
 	float4x4 ViewProj;
+	float4x4 View_;
+	float4 Focus;
 	float4 Screen2WorldU; // Should be a 4x2
 	float4 Screen2WorldV;
 	float4 Screen2WorldOrigin;
-	//float4x4 Screen2World;
+	float4x4 Screen2World;
 	float4x4 PTViewProj;
 	float4 PTS2WU; // same as screen 2 world
 	float4 PTS2WV;
@@ -22,6 +24,11 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float Time;
 	float Exposure;
 };
+
+float nrand(float2 uv)
+{
+    return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+}
 
 cbuffer cbmb : register(b0)
 { // 16 BYTE intervals
@@ -83,12 +90,8 @@ struct PIn
 PIn VS(VIn In)
 {
 	PIn Out;
-	
-	int Frame = (int)(Time * 10.0) % 16;
-	float FP = (float)Frame;
-	
-	//Out.Tex = (In.Tex.xy * UVScale + float2(FP, 0.0)) * float2(1.0 / 16.0 ,1.0);
-	Out.Tex = In.Tex.xy * UVScale;// + Time * float2(3,0);
+
+	Out.Tex = In.Tex.xy * UVScale;
 	
 	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
 	Out.Pos = mul(ViewProj,Out.wPos);
@@ -107,11 +110,53 @@ struct material
 	//float3 Fresnel;
 };
 
+float3 LightCookTorrance(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
+{
+	const float PI = 3.141592;
+	const float E = 2.718282;
+	
+	float m = 1.0 - 1.0 / Mat.Power.x;
+	
+	// Fresnel
+	float v = clamp(dot(NormalVec, ViewVec), 0, 1);
+	float n = 1.33;
+	float R0 = ((1-n) / (1+n)) * ((1-n) / (1+n));
+	float fresnel = R0 + (1-R0)*(1-v*v*v*v*v);
+	
+	//Geometric attenuation
+	float3 Half = normalize(ViewVec + LightVec);
+	float hn = clamp(dot(Half, NormalVec), 0, 1);
+	float d = clamp(dot(NormalVec,LightVec), 0, 1);
+	float hv = clamp(dot(Half, ViewVec), 0, 1);
+	float scale = 2.0 * hn / hv;
+	scale *= min(v, d);
+	float geometry = min(1, scale);
+	
+	//Beckmann distribution
+	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
+	float t2 = (1.0 - hn*hn) / hn*hn;
+	float beckmann = exp(-t2 / (m*m)) / (PI * m*m * hn*hn*hn*hn);
+	float3 phong = pow(clamp(dot(ViewVec,ReflVec),0,1),Mat.Power) * (Mat.Power + 2.0)/(2.0  * PI);
+	
+	float Specular = fresnel*geometry*phong / (4.0 * v * d);
+	
+	float Diffuse = dot(NormalVec,LightVec);
+	if(Diffuse < 0)	return float3(0,0,0);
+
+	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
+	Out += Mat.Reflectivity * Specular; // Specular
+	
+	return Out;
+}
+
+
 // The Pi terms in the diffuse and specular terms are normalizing terms, calculated by dividing by the double integral of all views at the maximum light intensity, which is usually vertical.
 // Diffuse = Pi, Specular = 2pi /  (Power+2)
 // This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
 float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 {
+	return LightCookTorrance(LightVec, NormalVec, ViewVec, Mat);
+
 	const float PI = 3.141592;
 	const float E = 2.718282;
 	
@@ -156,16 +201,23 @@ float4 PS(PIn In) : SV_TARGET
 	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
+	//float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
+	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
+	//vPos = Focus;
 	float3 View = vPos - In.wPos.xyz;
+	//float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
+	//						mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
 	float Viewdist = sqrt(dot(View, View));
-	
-	float3 buttview = View;
 	
 	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
 									 In.Bin,	//normalize(In.Bin), //
 									 In.Norm);	//normalize(In.Norm)); //
-	View = normalize(mul(Tangentspace, normalize(View)));
+	Normal = normalize(mul(transpose(Tangentspace), Normal));
+	//View = normalize(mul(Tangentspace, normalize(View)));
+	
+	//Normal = normalize(mul(transpose(Tangentspace), float3(0,0,1)));
+	
+	View = normalize(View);
 	
 	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
 	//Mat.Reflectivity = Mat.Albedo;
@@ -173,6 +225,8 @@ float4 PS(PIn In) : SV_TARGET
 	//Normal.xy *= 0.1; Normal = normalize(Normal);
 	//Normal = float3(0,0,1);
 	//Mat.Reflectivity = 0;
+	
+	//Mat.Power = 100000;
 	
 	//Mat.Albedo *= 1-Mat.Reflectivity;
 	//Mat.Reflectivity = 1;
@@ -198,13 +252,14 @@ float4 PS(PIn In) : SV_TARGET
 		float3 lite = Lights[i].Position - In.wPos.xyz;
 		float dist = sqrt(dot(lite, lite));
 		float bright = 1.0 / dot(lite, lite);
-		lite = normalize(mul(Tangentspace, normalize(lite)));
+		lite = normalize(lite);
 		float3 emit = Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
 		Out += emit;
 		//Out += Transmit(emit, FogColor, FogTransparancy, dist);
 	}
-
 	
+	//Out += Light(normalize(float3(0,1,-3)), Normal, View, Mat);// * float3(1.0,1.0,0.0);
+	/*
 	float4 PTscreen = mul(PTViewProj, In.wPos);
 	PTscreen.xyz /= PTscreen.w;
 	bool frustrum = all(abs(PTscreen.xy) <= float2(1.0,1.0));
@@ -219,32 +274,83 @@ float4 PS(PIn In) : SV_TARGET
 			float3 PT_vPos2 = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
 			float3 PT_vPos = mul(PTInverse, float4(PTscreen.xy,0,1)).xyz;
 			float PT_bright = 1.0 / (PTscreen.w);
-			float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
+			//float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
+			float3 PT_lite = normalize(PT_vPos - In.wPos.xyz);
 			Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
 		}
 	}
-	
+	*/
 	
 	//Out = Transmit(Out, FogColor, FogTransparancy, Viewdist);
 	
 	//float3 orange = srgb2photon(float3(1.0,0.5,0.0)); // Orange color
 	//float3 yellow = srgb2photon(float3(1.0,1.0,0.0)); // Yellow color
 	
-	Out *= Exposure;
-
-	Normal = mul(transpose(Tangentspace), Normal);
+	//Normal = mul(transpose(Tangentspace), Normal);
+	/*
 	float3x3 cuberotate = float3x3(float3(1,0,0),
 									float3(0,0,1),
 									float3(0,-1,0));
 	
-	if(dot(buttview, Normal) > 0.0)
-	{
-		float3 reflected = -reflect(buttview, Normal);
-		Out = srgb2photon(Cubemap.SampleLevel(Sampler, reflected, 0).rgb);//reflect(buttview, In.Norm)).rgb));
-	}
-	else
-		Out = float4(0,0,0,1);
+	if(dot(View, Normal) > 0.0)
+		Normal = -Normal;
 	
+	float3 spec = 0.0;
+	float3 diff = 0.0;
+	const int samplenum = 5;
+	float f_samplenum = samplenum;
+	int samplecutoff = f_samplenum * Mat.Reflectivity;
+	
+	for(int n=0;n<samplenum;++n)
+	{
+		if(n < samplecutoff) // Specular
+		{
+			
+			
+		}
+		else // Diffuse
+		{
+			float psi =   asin(nrand(In.Tex + float2(0.1,0.0)));
+			float theta = asin(nrand(In.Tex + float2(0.1,0.1)));
+			psi = asin(sqrt(psi));// / 2.0;
+			theta = 2.0 * 3.141592;
+			
+			//psi = 0.0;
+			
+			float2 rdisc = float2(cos(theta),sin(theta));
+			float3 rview = normalize(mul(transpose(Tangentspace), float3(rdisc*sin(psi),cos(psi))));
+			diff += srgb2photon(Cubemap.SampleLevel(Sampler, rview, 0).rgb);//reflect(buttview, In.Norm)).rgb));
+		}
+	}
+	*/
+	//Out = (Mat.Reflectivity * spec + (1.0 - Mat.Reflectivity) * diff) / f_samplenum;
+	
+	
+	/*
+	for(int ix=0;ix<ixn;++ix)
+		for(int iy=0;iy<iyn;++iy)
+		{
+			float3 newnorm = normalize(mul(transpose(Tangentspace), float3(ix-2,iy-2,0))) * 0.1;
+			newnorm *= dot(View, newnorm);
+			newnorm = normalize(newnorm + Normal);
+			if(dot(View, newnorm) > 0.0)
+				newnorm = -newnorm;
+			float3 reflected = -reflect(View, newnorm);
+			sam += srgb2photon(Cubemap.SampleLevel(Sampler, reflected, 0).rgb);//reflect(buttview, In.Norm)).rgb));
+		}
+	
+	//Out += sam;
+	
+	Out += sam * Mat.Reflectivity / ((float)(ixn*iyn));
+	*/
+	//else
+	//	Out = float4(0,0,0,1);
+	
+	//Out = srgb2photon(Cubemap.SampleLevel(Sampler, -View, 0).rgb);
+	
+	Out *= Exposure;
+	
+	//Out.rgb = Normal * 0.5 + 0.5;
 	
 	//return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 	return float4(Out,1.0);

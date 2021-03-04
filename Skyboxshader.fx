@@ -25,18 +25,8 @@ cbuffer cbPerObject : register(b0) // fancy schmancy
 	float Exposure;
 };
 
-struct LightInfo
-{
-	float3 Position;
-	float padding1;
-	float3 Color;
-	float padding2;
-};
-
-cbuffer LightBuffer : register(b1)
-{ // 16 byte intervals divided by sizeof float (4) = 4 floats per interval
-	LightInfo Lights[100];
-};
+TextureCube Cubemap : register(t10);
+SamplerState Sampler : register(s0);
 
 struct PIn
 {
@@ -48,17 +38,23 @@ struct PIn
 	float4 wPos : TEXCOORD1;
 };
 
-float3 Transmit(float3 StartColor, float3 FogColor, float3 Transparency, float dist)
-{
-	const float PI = 3.141592;
-	const float E = 2.718282;
-
-	return FogColor + (StartColor - FogColor)*exp(-dist*Transparency);
-}
-
 float4 PS(PIn In) : SV_TARGET
 {
-	float3 Out = Lights[SelectedLight].Color * Exposure;
+	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
+
+	//return float4(normalize(mul(Screen2World, float4(sPos, 1.0,1.0)).xyz),1.0);
+	
+	float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
+							mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
+	
+	return float4(0.5+0.5*View, 1.0);
+	
+	//float3 View = normalize(vPos - In.wPos.xyz);
+
+	float3 Out = float3(sPos, In.Pos.z);
+	//Out = 0.5+0.5*View;
+	Out = srgb2photon(Cubemap.SampleLevel(Sampler, View, 0).rgb);
+	//float3 Out = Lights[SelectedLight].Color * Exposure;
 	/*
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
