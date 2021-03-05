@@ -1,6 +1,7 @@
 
 //#include "_Constbuffer.fx"
 #include "srgb2photon.fx"
+#include "Raytracing.fx"
 
 cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
@@ -209,15 +210,29 @@ float4 PS(PIn In) : SV_TARGET
 	//						mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
 	float Viewdist = sqrt(dot(View, View));
 	
-	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
-									 In.Bin,	//normalize(In.Bin), //
-									 In.Norm);	//normalize(In.Norm)); //
+	float3x3 Tangentspace = float3x3(normalize(In.Tan), //In.Tan,	//
+									 normalize(In.Bin), //In.Bin,	//
+									 normalize(In.Norm)); //In.Norm);	//
 	Normal = normalize(mul(transpose(Tangentspace), Normal)); // matrix inverse?
-	//View = normalize(mul(Tangentspace, normalize(View)));
+	View = normalize(mul(Tangentspace, normalize(View)));
 	
 	//Normal = normalize(mul(transpose(Tangentspace), float3(0,0,1)));
 	
+	//Normal = normalize(In.Norm);
+	//Normal = normalize(In.Tan);
+	//Normal = normalize(In.Bin);
+	//return float4(Normal, 1.0);
+	
+	//float poop = dot(cross(normalize(In.Tan), normalize(In.Bin)), normalize(In.Norm));
+	//return float4(poop, poop, poop, 1.0);
+	
 	View = normalize(View);
+	
+	//float3 refl = reflect(View, Normal);
+	//return Cubemap.SampleLevel(Sampler, refl, 0);
+	//return Cubemap.SampleLevel(Sampler, View.xyz, 0);
+	
+	
 	
 	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
 	//Mat.Reflectivity = Mat.Albedo;
@@ -228,12 +243,14 @@ float4 PS(PIn In) : SV_TARGET
 	
 	//Mat.Power = 100000;
 	
+	//Mat.Power = 100.0;
+	
 	//Mat.Albedo *= 1-Mat.Reflectivity;
 	//Mat.Reflectivity = 1;
 	
 	//Mat.Albedo = 0;
 	
-	float3 Ambient = srgb2lsrgb(float3(0.0,0.5,1.0)) * 0.1;
+	float3 Ambient = srgb2lsrgb(float3(0.0,0.5,1.0)) * 0.1 * 0.0;
 	float3 FogColor = Ambient;//1;
 	float3 FogTransparancy = 0.5;//srgb2lsrgb(float3(0.5,0.75,1.0))*0.5;
 	
@@ -286,9 +303,47 @@ float4 PS(PIn In) : SV_TARGET
 	}
 	
 	//importance sampled skybox
-	//float3 refl = reflect(-View, Normal);
-	//return Cubemap.SampleLevel(Sampler, refl, 0);
+	const int samples = 16;
+	//Mat.Power = 10;
+	//Mat.Power = 10000.0;
+	//Mat.Power = 1.0;
+	//Mat.Power = 100000.0;
+	float3 sample_sum = float3(0,0,0);
+	for(int s=0; s<samples; ++s)
+	{
+		float xi0 = nrand(In.Tex + float2(0.1,0.0)*(s+1 + Time));
+		float xi1 = nrand(In.Tex + float2(0.1,0.1)*(s+1 + Time));
+		float xi2 = nrand(In.Tex + float2(0.0,0.1)*(s+1 + Time));
+		
+		float pdf = 1.0;
+		//float3 rDir = reflect(-View, Normal);
+		//float3 rDir = sampleLambert(float2(xi0, xi1), Normal, pdf);
+		//float3 rDir = samplePhongSpec(float2(xi0, xi1), Normal, -View, Mat.Power, pdf);
+		float avgRefl = dot(Mat.Reflectivity, float3(1,1,1)) / 3.0;
+		float3 rDir = sampleMIS(float3(xi0, xi1, xi2), Normal, -View, avgRefl, Mat.Power, pdf);
+		
+		float3 brdf = Light(rDir, Normal, View, Mat);
+		
+		if(pdf <= 0.0)
+		{
+			brdf = float3(0,0,0);
+		}
+		else
+		{
+			brdf /= pdf;
+		}
+		
+		float3 sky_color = Cubemap.SampleLevel(Sampler, rDir, 0).xyz;
+		
+		sample_sum += brdf * sky_color;
+	}
+	//return float4(sample_sum / float(samples), 1.0);
+	Out += sample_sum / float(samples);
 	
+	/*
+	float3 refl = reflect(-View, Normal);
+	return Cubemap.SampleLevel(Sampler, refl, 0);
+	*/
 	
 	Out = saturationClip(Out);
 	Out = lsrgb2srgb(Out);

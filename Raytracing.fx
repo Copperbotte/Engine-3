@@ -1,345 +1,155 @@
 
-//#include "_Constbuffer.fx"
-#include "Srgb2Photon.fx"
-
-cbuffer cbPerObject : register(b0) // fancy schmancy
-{ // 16 BYTE intervals
-	float4x4 World;
-	float4x4 ViewProj;
-	float4x4 View_;
-	float4 Focus;
-	float4 Screen2WorldU; // Should be a 4x2
-	float4 Screen2WorldV;
-	float4 Screen2WorldOrigin;
-	float4x4 Screen2World;
-	float4x4 PTViewProj;
-	float4 PTS2WU; // same as screen 2 world
-	float4 PTS2WV;
-	float4 PTS2WO;
-	float4x4 PTInverse;
-	float4 TextureRanges[14];
-	uint LightNum;
-	uint SelectedLight;
-	float2 UVScale;
-	float Time;
-	float Exposure;
-};
-
-float nrand(float2 uv)
+//to World
+float3 toWorld(float3 dir, float3 normOut)
 {
-    return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+    //todo: do this properly using quaternions
+    float3 normDir = float3(0,0,1);
+    
+    float epsilon = 1.0 - 1e-5;
+    if(epsilon < dot(normDir, normOut))
+        return dir;
+        
+    if(dot(normDir, normOut) < -epsilon)
+        return -dir;
+    
+    //make a pair of bases that are orthogonal to the output normal
+    float3 a = cross(normDir, normOut);
+    a = normalize(a);
+    
+    float3 b = cross(a, normOut);
+    b = normalize(b);
+    
+    float3x3 M = float3x3(a, b, normOut);
+    
+    return normalize(mul(dir, M));
 }
 
-cbuffer cbmb : register(b0)
-{ // 16 BYTE intervals
-	float framenum;
-	uint padding3[3];
-};
-
-struct LightInfo
+//random number generators
+//random point in sphere
+float3 randSphere(float2 xi)
 {
-	float3 Position;
-	float padding1;
-	float3 Color;
-	float padding2;
-};
+    //float xi1 = rnd() * 2.0 - 1.0;
+    //float xi2 = rnd();
+	xi.x = xi.x * 2.0 - 1.0;
+	
+    float theta = xi.y * 2.0 * 3.141592;
+    float sinp = sqrt(1.0 - xi.x*xi.x);
 
-cbuffer LightBuffer : register(b1)
-{ // 16 byte intervals divided by sizeof float (4) = 4 floats per interval
-	LightInfo Lights[100];
+    float x = sinp * cos(theta);
+    float y = sinp * sin(theta);
+    float z = xi.x;
+
+    return float3(x, y, z);
 }
 
-Texture2D RT : register(t0); // Render target
-Texture2D surface[7] : register(t1);
-Texture2D PT[2] : register(t8);
-TextureCube Cubemap : register(t10);
-SamplerState Sampler : register(s0);
-
-float3 SampleTexture(uint Tex, float2 UV)
+float3 randLambert(float2 xi, float3 normal)
 {
-	float3 Out = surface[Tex].Sample(Sampler, UV).rgb;
-	if(Tex == 0 || Tex == 5)
-		Out = srgb2photon(Out);
-	//if(Tex == 3)
-	//	Out = pow(Out,4);
-		
-	//Lerp
-	return (TextureRanges[Tex+7]-TextureRanges[Tex])*Out + TextureRanges[Tex];
-	//return lerp(TextureRanges[Tex+7],TextureRanges[Tex],Out); // This lerp doesn't appear to work
+    float theta = xi.y * 2.0 * 3.141592;
+    float cosp = sqrt(xi.x);
+    float sinp = sqrt(1.0 - cosp*cosp);
+
+    float x = sinp * cos(theta);
+    float y = sinp * sin(theta);
+    float z = cosp;
+
+    return toWorld(float3(x, y, z), normal);
 }
 
-struct VIn
+//phong brdfs
+float brdfLambert(float3 normal, float3 rOut)
 {
-	float3 Pos : POSITION;
-	float3 Tex : TEXCOORD0;
-	float3 Norm : NORMAL0;
-	float3 Tan : TANGENT0;
-	float3 Bin : BINORMAL0;
-};
-
-struct PIn
-{
-	float4 Pos : SV_POSITION;
-	float3 Norm : NORMAL0;
-	float3 Tan : TANGENT0;
-	float3 Bin : BINORMAL0;
-	float2 Tex : TEXCOORD0;
-	float4 wPos : TEXCOORD1;
-};
-
-PIn VS(VIn In)
-{
-	PIn Out;
-
-	Out.Tex = In.Tex.xy * UVScale;
+	float diffuse = max(0.0, dot(normal, rOut));
+	diffuse /= 3.141592;
 	
-	Out.wPos = mul(World, float4(In.Pos.xyz,1.0));
-	Out.Pos = mul(ViewProj,Out.wPos);
-	Out.Norm = mul(World, float4(In.Norm,0.0)).xyz; // 0.0 disables translations into worldspace
-	Out.Tan = mul(World, float4(In.Tan,0.0)).xyz; // 3 dots instead of building a matrix is faster
-	Out.Bin = mul(World, float4(In.Bin,0.0)).xyz;
-	
-	return Out;	
+	return diffuse;
 }
 
-struct material
+float brdfPhongSpecular(float3 normal, float3 rIn, float3 rOut, float power)
 {
-	float3 Albedo;
-	float3 Reflectivity;
-	float3 Power;
-	//float3 Fresnel;
-};
-
-float3 LightCookTorrance(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
-{
-	const float PI = 3.141592;
-	const float E = 2.718282;
-	
-	float m = 1.0 - 1.0 / Mat.Power.x;
-	
-	// Fresnel
-	float v = clamp(dot(NormalVec, ViewVec), 0, 1);
-	float n = 1.33;
-	float R0 = ((1-n) / (1+n)) * ((1-n) / (1+n));
-	float fresnel = R0 + (1-R0)*(1-v*v*v*v*v);
-	
-	//Geometric attenuation
-	float3 Half = normalize(ViewVec + LightVec);
-	float hn = clamp(dot(Half, NormalVec), 0, 1);
-	float d = clamp(dot(NormalVec,LightVec), 0, 1);
-	float hv = clamp(dot(Half, ViewVec), 0, 1);
-	float scale = 2.0 * hn / hv;
-	scale *= min(v, d);
-	float geometry = min(1, scale);
-	
-	//Beckmann distribution
-	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
-	float t2 = (1.0 - hn*hn) / hn*hn;
-	float beckmann = exp(-t2 / (m*m)) / (PI * m*m * hn*hn*hn*hn);
-	float3 phong = pow(clamp(dot(ViewVec,ReflVec),0,1),Mat.Power) * (Mat.Power + 2.0)/(2.0  * PI);
-	
-	float Specular = fresnel*geometry*phong / (4.0 * v * d);
-	
-	float Diffuse = dot(NormalVec,LightVec);
-	if(Diffuse < 0)	return float3(0,0,0);
-
-	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
-	Out += Mat.Reflectivity * Specular; // Specular
-	
-	return Out;
+	float3 refl = reflect(rIn, normal);
+	float specular = max(0.0, dot(refl, rOut));
+	specular = pow(specular, power);
+	specular *= (power + 2.0) / (2.0 * 3.141592);
+	return specular;
 }
 
-
-// The Pi terms in the diffuse and specular terms are normalizing terms, calculated by dividing by the double integral of all views at the maximum light intensity, which is usually vertical.
-// Diffuse = Pi, Specular = 2pi /  (Power+2)
-// This and the SRGB to Linear intensity "photon" color space transforms perform true-to-life lighting calculations.
-float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
+//general case of randLambert
+float3 randPhongSpec(float2 xi, float3 normal, float3 rIn, float power)
 {
-	//return LightCookTorrance(LightVec, NormalVec, ViewVec, Mat);
+    float3 refl = reflect(rIn, normal);
+    
+    float theta = xi.y * 2.0 * 3.141592;
+    float cosp = pow(xi.x, 1.0/power);
+    float sinp = sqrt(1.0 - cosp*cosp);
 
-	const float PI = 3.141592;
-	const float E = 2.718282;
-	
-	float Diffuse = dot(NormalVec,LightVec);
-	if(Diffuse < 0)	return float3(0,0,0);
-	
-	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
-	float3 Specular = pow(max(0.0f,dot(ViewVec,ReflVec)),Mat.Power);
+    float x = sinp * cos(theta);
+    float y = sinp * sin(theta);
+    float z = cosp;
 
-	float3 Out = (1 - Mat.Reflectivity) * Mat.Albedo * Diffuse / PI; // Diffuse
-	Out += Mat.Reflectivity * Specular * (Mat.Power + 2.0)/(2.0  * PI); // Specular
-	return Out;
+    return toWorld(float3(x, y, z), refl);
 }
 
-float3 LightHarmonics(float3 Ambient, float3 NormalVec, float3 ViewVec, material Mat, float3x3 tanspace)
+//samplers & pdfs
+float3 sampleLambert(float2 xi, float3 normal, out float pdf)
 {
-	const float PI = 3.141592;
-	const float E = 2.718282;
+    float3 dir = randLambert(xi, normal);
+    
+	pdf = brdfLambert(normal, dir);
 	
-	float3 Y10 = srgb2photon(float3(0.25,1,0.25)) - Ambient;
-	
-	float3 ReflVec = -ViewVec + NormalVec*2*dot(ViewVec,NormalVec)/dot(NormalVec,NormalVec);
-	//return saturate(dot(ReflVec,NormalVec));
-	return -Y10 * mul(ReflVec,tanspace).z;	
+    return dir;
 }
 
-float3 Transmit(float3 StartColor, float3 FogColor, float3 Transparency, float dist)
+float pdfLambert(float3 rOut, float3 normal)
 {
-	const float PI = 3.141592;
-	const float E = 2.718282;
-
-	return FogColor + (StartColor - FogColor)*exp(-dist*Transparency);
+	return brdfLambert(normal, rOut);
 }
 
-float4 PS(PIn In) : SV_TARGET
+float3 samplePhongSpec(float2 xi, float3 normal, float3 rIn, float power, out float pdf)
 {
-	material Mat;
-	Mat.Albedo = SampleTexture(0,In.Tex);
-	Mat.Reflectivity = SampleTexture(2,In.Tex);
-	Mat.Power = SampleTexture(3,In.Tex);
+    float3 dir = randPhongSpec(xi, normal, rIn, power);
 	
-	float3 Normal = normalize(SampleTexture(1,In.Tex)); //Stubborn, lies in Tangentspace
-	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
-	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	//float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
-	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	//vPos = Focus;
-	float3 View = vPos - In.wPos.xyz;
-	//float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
-	//						mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
-	float Viewdist = sqrt(dot(View, View));
+	pdf = brdfPhongSpecular(normal, rIn, dir, power); 
+    return dir;
+}
+
+float pdfPhongSpec(float3 rOut, float3 rIn, float3 normal, float power)
+{
+	return brdfPhongSpecular(normal, rIn, rOut, power); 
+}
+
+float3 sampleMIS(float3 xi, float3 normal, float3 rIn, float reflectivity, float power, out float pdf)
+{
+	//build method space
+	const int methodCount = 2;
+	const float f_mc = float(methodCount);
+	float c_lambert = 0.5;
+	float c_specular = 0.5;
 	
-	float3x3 Tangentspace = float3x3(In.Tan,	//normalize(In.Tan), //
-									 In.Bin,	//normalize(In.Bin), //
-									 In.Norm);	//normalize(In.Norm)); //
-	Normal = normalize(mul(transpose(Tangentspace), Normal)); // matrix inverse?
-	//View = normalize(mul(Tangentspace, normalize(View)));
+	float methodSpace[methodCount] = {c_lambert, c_specular};
 	
-	//Normal = normalize(mul(transpose(Tangentspace), float3(0,0,1)));
-	
-	View = normalize(View);
-	
-	//Mat.Albedo = float4(float3(1,1,1)*172.0/255.0,1.0);
-	//Mat.Reflectivity = Mat.Albedo;
-	//Mat.Power = 569;
-	//Normal.xy *= 0.1; Normal = normalize(Normal);
-	//Normal = float3(0,0,1);
-	//Mat.Reflectivity = 0;
-	
-	//Mat.Power = 100000;
-	
-	//Mat.Albedo *= 1-Mat.Reflectivity;
-	//Mat.Reflectivity = 1;
-	
-	//Mat.Albedo = 0;
-	
-	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
-	float3 FogColor = Ambient;//1;
-	float3 FogTransparancy = 0.5;//srgb2photon(float3(0.5,0.75,1.0))*0.5;
-	
-	//FogColor = Ambient;
-	
-	float3 Out = Ambient;
-	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
-	
-	//float3 fucku = LightHarmonics(Ambient, Normal, View, Mat, Tangentspace)/ 10.0;
-	//return float4(fucku,1.0);
-	
-	//Out *= 0;
-	
-	for(uint i=0;i<LightNum;++i)
+	//pick a method in methodspace
+	int c = 0;
+	float methodSum = 0.0;
+	for(c=0; c<methodCount; ++c)
 	{
-		float3 lite = Lights[i].Position - In.wPos.xyz;
-		float dist = sqrt(dot(lite, lite));
-		float bright = 1.0 / dot(lite, lite);
-		lite = normalize(lite);
-		float3 emit = Light(lite, Normal, View, Mat)*bright*Lights[i].Color;
-		Out += emit;
-		//Out += Transmit(emit, FogColor, FogTransparancy, dist);
+		methodSum += methodSpace[c];
+		if(xi.z < methodSum)
+			break;
 	}
 	
-	//Out += Light(normalize(float3(0,1,-3)), Normal, View, Mat);// * float3(1.0,1.0,0.0);
+	//find sample from chosen method
+	float3 dir = normal; // default
+	float spdf = 1.0;
+	if(c == 0)
+		dir = sampleLambert(xi.xy, normal, spdf);
+	else //if(c == 1)
+		dir = samplePhongSpec(xi.xy, normal, rIn, power, spdf);
 	
-	//Projected texture / shadowmap
-	float4 PTscreen = mul(PTViewProj, In.wPos);
-	PTscreen.xyz /= PTscreen.w;
-	bool frustrum = all(abs(PTscreen.xy) <= float2(1.0,1.0));
-	if(frustrum)
-	{
-		float2 PTUV = (float2(1,-1)*PTscreen.xy + 1.0) / 2.0;
-		float4 PTCamPos = PT[1].Sample(Sampler, PTUV);
-		PTCamPos -= In.wPos;
-		
-		float d2 = dot(PTCamPos.xyz,PTCamPos.xyz);
-		
-		if(dot(PTCamPos.xyz,PTCamPos.xyz) < 0.001)
-		{
-			float4 sam = PT[0].Sample(Sampler, PTUV);
-			float3 PT_vPos2 = mul(float3x2(PTS2WU.xyz,PTS2WV.xyz), PTscreen.xy) + PTS2WO.xyz;
-			float3 PT_vPos = mul(PTInverse, float4(PTscreen.xy,0,1)).xyz;
-			float PT_bright = 1.0 / (PTscreen.w);
-			//float3 PT_lite = normalize(mul(Tangentspace, normalize(PT_vPos - In.wPos.xyz)));
-			float3 PT_lite = normalize(PT_vPos - In.wPos.xyz);
-			Out += Light(PT_lite, Normal, View, Mat) * sam.rgb * sam.a * 10 * PT_bright;
-			
-		}
-	}
+	pdf = spdf;
+	return dir;
 	
-	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
-	//return float4(Out,1.0);
 }
 
-// Physically accurate lighting, uses Srgb2Photon.fx
-// Rendered on a 2nd pass
 
-float4 PTPS(PIn In) : SV_TARGET
-{
-	return In.wPos;
-}
 
-struct SRGBPOST_VIN
-{
-	float3 Pos : POSITION;
-	float3 tex : TEXCOORD0;
-};
 
-struct SRGBPOST_PIN
-{
-	float4 Pos : SV_POSITION; 
-	float2 tex : TEXCOORD0;
-};
-
-struct SRGBPOST_POUT
-{
-	float4 Color : SV_TARGET0;
-	float4 Luminosity : SV_TARGET1;
-};
-
-SRGBPOST_PIN SRGBPOST_VS(SRGBPOST_VIN In)
-{
-	SRGBPOST_PIN Out;
-	Out.Pos = float4(In.Pos,1.0);
-	Out.tex = In.tex * float2(1.0,-1.0);
-	return Out;
-}
-
-float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
-{
-	float4 Out = RT.Sample(Sampler, In.tex);
-	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the dark scene without hdr, 0.1 for bright
-	//Out.xyz /= Out.xyz + 1.0;
-	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
-}
-
-float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET
-{
-	float4 Out = RT.Sample(Sampler, In.tex);
-	float lum = log(dot(Out.xyz,float3(0.27,0.67,0.06)));
-	return float4(float3(1.0,1.0,1.0) * lum,1.0);
-}
-
-float4 MB_PS(SRGBPOST_PIN In) : SV_TARGET
-{
-	float4 sam = RT.Sample(Sampler, In.tex);
-	return float4(sam.xyz, sam.a);///framenum)
-}
