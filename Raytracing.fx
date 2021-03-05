@@ -1,6 +1,6 @@
 
 //#include "_Constbuffer.fx"
-#include "srgb2photon.fx"
+#include "Srgb2Photon.fx"
 
 cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
@@ -59,7 +59,7 @@ float3 SampleTexture(uint Tex, float2 UV)
 {
 	float3 Out = surface[Tex].Sample(Sampler, UV).rgb;
 	if(Tex == 0 || Tex == 5)
-		Out = srgb2lsrgb(Out);
+		Out = srgb2photon(Out);
 	//if(Tex == 3)
 	//	Out = pow(Out,4);
 		
@@ -176,7 +176,7 @@ float3 LightHarmonics(float3 Ambient, float3 NormalVec, float3 ViewVec, material
 	const float PI = 3.141592;
 	const float E = 2.718282;
 	
-	float3 Y10 = srgb2lsrgb(float3(0.25,1,0.25)) - Ambient;
+	float3 Y10 = srgb2photon(float3(0.25,1,0.25)) - Ambient;
 	
 	float3 ReflVec = -ViewVec + NormalVec*2*dot(ViewVec,NormalVec)/dot(NormalVec,NormalVec);
 	//return saturate(dot(ReflVec,NormalVec));
@@ -233,9 +233,9 @@ float4 PS(PIn In) : SV_TARGET
 	
 	//Mat.Albedo = 0;
 	
-	float3 Ambient = srgb2lsrgb(float3(0.0,0.5,1.0)) * 0.1;
+	float3 Ambient = srgb2photon(float3(0.0,0.5,1.0)) * 0.1;
 	float3 FogColor = Ambient;//1;
-	float3 FogTransparancy = 0.5;//srgb2lsrgb(float3(0.5,0.75,1.0))*0.5;
+	float3 FogTransparancy = 0.5;//srgb2photon(float3(0.5,0.75,1.0))*0.5;
 	
 	//FogColor = Ambient;
 	
@@ -285,19 +285,11 @@ float4 PS(PIn In) : SV_TARGET
 		}
 	}
 	
-	//importance sampled skybox
-	//float3 refl = reflect(-View, Normal);
-	//return Cubemap.SampleLevel(Sampler, refl, 0);
-	
-	
-	Out = saturationClip(Out);
-	Out = lsrgb2srgb(Out);
-	Out = saturate(Out);
-	return float4(Out,1.0);
+	return float4(photon2srgb(clamp(Out,0.0,1.0)),1.0);
 	//return float4(Out,1.0);
 }
 
-// Physically accurate lighting, uses srgb2lsrgb.fx
+// Physically accurate lighting, uses Srgb2Photon.fx
 // Rendered on a 2nd pass
 
 float4 PTPS(PIn In) : SV_TARGET
@@ -336,7 +328,7 @@ float4 SRGBPOST_PS(SRGBPOST_PIN In) : SV_TARGET
 	float4 Out = RT.Sample(Sampler, In.tex);
 	//Out.xyz *= 0.03/exp(surface[0].SampleLevel(Sampler, In.tex, 10)); // 0.03 is approximately the average brightness of the dark scene without hdr, 0.1 for bright
 	//Out.xyz /= Out.xyz + 1.0;
-	return float4(lsrgb2srgb(saturate(Out.xyz)),Out.a);
+	return float4(photon2srgb(saturate(Out.xyz)),Out.a);
 }
 
 float4 HDR_LUMEN_PS(SRGBPOST_PIN In) : SV_TARGET

@@ -1,6 +1,6 @@
 
 //#include "_Constbuffer.fx"
-#include "Srgb2Photon.fx"
+#include "srgb2photon.fx"
 
 cbuffer cbPerObject : register(b0) // fancy schmancy
 { // 16 BYTE intervals
@@ -47,13 +47,13 @@ float4 PS(PIn In) : SV_TARGET
 	float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
 							mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
 	
-	return float4(0.5+0.5*View, 1.0);
+	//return float4(0.5+0.5*View, 1.0);
 	
 	//float3 View = normalize(vPos - In.wPos.xyz);
 
 	float3 Out = float3(sPos, In.Pos.z);
 	//Out = 0.5+0.5*View;
-	Out = srgb2photon(Cubemap.SampleLevel(Sampler, View, 0).rgb);
+	Out = srgb2lsrgb(Cubemap.SampleLevel(Sampler, View, 0).rgb);
 	//float3 Out = Lights[SelectedLight].Color * Exposure;
 	/*
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
@@ -63,8 +63,8 @@ float4 PS(PIn In) : SV_TARGET
 	float Viewdist = sqrt(dot(View, View));
 	
 	Out = Transmit(Out,
-						  srgb2photon(float3(0.0,0.5,1.0)) * 0.1,
-						  0.5,//srgb2photon(float3(0.5,0.75,1.0))*0.5,
+						  srgb2lsrgb(float3(0.0,0.5,1.0)) * 0.1,
+						  0.5,//srgb2lsrgb(float3(0.5,0.75,1.0))*0.5,
 						  Viewdist);
 	*/
 	return float4(Out,1.0);

@@ -31,7 +31,8 @@ ID3D11Buffer *cbuffer[2];
 ID3D11SamplerState *TextureSampler;
 
 //Textures
-TextureData Mat;
+unsigned int activeMat;
+TextureData Mat[7];
 
 //projected texture
 ID3D11RenderTargetView *PTbuffer; // position taken from depth buffer
@@ -145,15 +146,18 @@ bool Init(ID3D11Device *d3d, ID3D11DeviceContext *con, IDXGISwapChain *sc)
 		L"Textures/metal-splotchy.e3t",
 		L"Textures/minish.e3t",
 	};
-	
-	Mat = LoadTextureSet(texlocations[0]);
 
-	memcpy( ConstantBuffer.TextureRanges,    Mat.Low,  sizeof(XMFLOAT4) * 7);
-	memcpy(&ConstantBuffer.TextureRanges[7], Mat.High, sizeof(XMFLOAT4) * 7);
+	activeMat = 0;
 
-	_devcon->PSSetShaderResources(1, 7, Mat.Textures);
-	_devcon->GSSetShaderResources(1, 7, Mat.Textures);
-	_devcon->VSSetShaderResources(1, 1, &Mat.Textures[TEX_Height]);
+	for(int i=0; i<7; ++i)
+		Mat[i] = LoadTextureSet(texlocations[i]);
+
+	memcpy( ConstantBuffer.TextureRanges,    Mat[activeMat].Low,  sizeof(XMFLOAT4) * 7);
+	memcpy(&ConstantBuffer.TextureRanges[7], Mat[activeMat].High, sizeof(XMFLOAT4) * 7);
+
+	_devcon->PSSetShaderResources(1, 7, Mat[activeMat].Textures);
+	_devcon->GSSetShaderResources(1, 7, Mat[activeMat].Textures);
+	_devcon->VSSetShaderResources(1, 1, &Mat[activeMat].Textures[TEX_Height]);
 	
 	////////////////////////////////////////////////////////////////////////////
 	///////////////////////////// Projected Texture ////////////////////////////
@@ -409,6 +413,30 @@ bool Think()
 
 	ConstantBuffer.Time = Time;
 
+	//change material
+	int dMat = 0;
+	if(Key.Down('E'))
+		dMat -= 1;
+	if(Key.Down('R'))
+		dMat += 1;
+	dMat += activeMat;
+	if(dMat < 0)
+		dMat += 7;
+	if(7 <= dMat)
+		dMat -= 7;
+
+	if (activeMat != dMat)
+	{
+		activeMat = dMat;
+
+		memcpy(ConstantBuffer.TextureRanges, Mat[activeMat].Low, sizeof(XMFLOAT4) * 7);
+		memcpy(&ConstantBuffer.TextureRanges[7], Mat[activeMat].High, sizeof(XMFLOAT4) * 7);
+
+		_devcon->PSSetShaderResources(1, 7, Mat[activeMat].Textures);
+		_devcon->GSSetShaderResources(1, 7, Mat[activeMat].Textures);
+		_devcon->VSSetShaderResources(1, 1, &Mat[activeMat].Textures[TEX_Height]);
+	}
+
 	return true;
 }
 
@@ -449,7 +477,7 @@ bool PrepRender()
 
 	ConstantBuffer.ViewProj = ViewProj;
 
-	_devcon->PSSetShaderResources(1, 7, Mat.Textures);
+	//_devcon->PSSetShaderResources(1, 7, Mat[0].Textures);
 	_devcon->PSSetShaderResources(8, 1, &PTemissive);
 
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
@@ -597,7 +625,8 @@ void End()
 	SAFE_RELEASE(Cubemapres);
 
 	for(unsigned int i=0;i<TEX_MAX_VALUE;i++)
-		SAFE_RELEASE(Mat.Textures[i]);
+		for(unsigned int n=0; n<7; ++n)
+			SAFE_RELEASE(Mat[n].Textures[i]);
 	SAFE_RELEASE(TextureSampler);
 
 	for(unsigned int i=0;i<2;i++)
