@@ -145,6 +145,18 @@ float3 sampleMIS(float3 xi, float3 normal, float3 rIn, float reflectivity, float
 	else //if(c == 1)
 		dir = samplePhongSpec(xi.xy, normal, rIn, power, spdf);
 	
+	//this pdf was already precomputed
+	spdf *= methodSpace[c];
+	
+	for(int i=0; i<methodCount - 1; ++i)
+	{
+		int j = (i+c+1) % methodCount; // skips precomputed method
+		if(j == 0)
+			spdf += methodSpace[j] * pdfLambert(dir, normal);
+		else //if(j == 1)
+			spdf += methodSpace[j] * pdfPhongSpec(dir, rIn, normal, power);
+	}
+	
 	pdf = spdf;
 	return dir;
 	

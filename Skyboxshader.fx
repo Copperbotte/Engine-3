@@ -44,16 +44,17 @@ float4 PS(PIn In) : SV_TARGET
 
 	//return float4(normalize(mul(Screen2World, float4(sPos, 1.0,1.0)).xyz),1.0);
 	
-	float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
-							mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
+	//float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
+	//						mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
 	
 	//return float4(0.5+0.5*View, 1.0);
 	
-	//float3 View = normalize(vPos - In.wPos.xyz);
+	float3 vPos = Focus;
+	float3 View = normalize(vPos - In.wPos.xyz);
 
 	float3 Out = float3(sPos, In.Pos.z);
 	//Out = 0.5+0.5*View;
-	Out = srgb2lsrgb(Cubemap.SampleLevel(Sampler, View, 0).rgb);
+	Out = srgb2lsrgb(Cubemap.SampleLevel(Sampler, -View, 0).rgb);
 	//float3 Out = Lights[SelectedLight].Color * Exposure;
 	/*
 	float2 sPos = lerp( -1.0, 1.0, In.Pos.xy / float2(1280,720)); // Need to pass viewport data into shaders
@@ -67,5 +68,10 @@ float4 PS(PIn In) : SV_TARGET
 						  0.5,//srgb2lsrgb(float3(0.5,0.75,1.0))*0.5,
 						  Viewdist);
 	*/
+	
+	Out = saturationClip(Out);
+	Out = lsrgb2srgb(Out);
+	Out = saturate(Out);
+	
 	return float4(Out,1.0);
 }

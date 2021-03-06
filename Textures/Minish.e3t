@@ -1,5 +1,6 @@
 Albedo
-src "minish.jpg"
+COMMENT src "minish.jpg"
+src "uvtester.png"
 range 0 1
 
 Normal

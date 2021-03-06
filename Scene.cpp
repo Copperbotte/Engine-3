@@ -327,7 +327,7 @@ bool Think()
 
 	float cam_height = sin(cam_rotation * PI) * 0.4;
 
-	float WorldRotation = 0*Time/3.0f;
+	float WorldRotation = -0.0*Time/10.0f; // 3.0f;
 
 	XMMATRIX View = CubeTranslate*
 					XMMatrixRotationY(WorldRotation)*
@@ -537,8 +537,10 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 
 	//Draw floor
 	ConstantBuffer.World = XMMatrixScaling(20,20,20) // Scale larger
-		*XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
-		*XMMatrixTranslation(0,-0.5f,0.0 + t); // Translate to floor
+		* XMMatrixRotationX(-3.141592f/2.0f) // Rotate flat
+		* XMMatrixTranslation(0,-0.5f,0.0 + t) // Translate to floor
+		//* XMMatrixRotationY(Time / 4.0)
+		;
 	ConstantBuffer.UVScale = XMFLOAT2(40,40);
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
 	Draw(*Screenmodel);
@@ -556,12 +558,15 @@ bool RenderScene(MODELID *Screenmodel, MODELID *Cubemodel, ID3D11PixelShader *Wo
 	}
 
 	//Draw backbuffer
+	
 	_devcon->PSSetShader(SkyPS, 0, 0);
-	ConstantBuffer.World = ConstantBuffer.Screen2World;
+	//ConstantBuffer.World = ConstantBuffer.Screen2World;
 	//ConstantBuffer.ViewProj *= XMMatrixTranslation(0,0,0.999);
+	XMMATRIX cubeworld = XMMatrixTranslation(-0.5, -0.5, -0.5) * XMMatrixScaling(-100.0, -100.0, -100.0);
+	ConstantBuffer.World = cubeworld;
 	_devcon->UpdateSubresource(cbuffer[0], 0, NULL, &ConstantBuffer, 0, 0);
-	//Draw(*Screenmodel);
-
+	Draw(*Cubemodel);
+	
 	return true;
 }
 

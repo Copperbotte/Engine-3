@@ -58,6 +58,7 @@ SamplerState Sampler : register(s0);
 
 float3 SampleTexture(uint Tex, float2 UV)
 {
+	UV = lerp(float2(0,1),float2(1,0),UV); // directx flips the v axis
 	float3 Out = surface[Tex].Sample(Sampler, UV).rgb;
 	if(Tex == 0 || Tex == 5)
 		Out = srgb2lsrgb(Out);
@@ -100,6 +101,7 @@ PIn VS(VIn In)
 	Out.Tan = mul(World, float4(In.Tan,0.0)).xyz; // 3 dots instead of building a matrix is faster
 	Out.Bin = mul(World, float4(In.Bin,0.0)).xyz;
 	
+	//coordinate system is in right handed y up
 	return Out;	
 }
 
@@ -161,8 +163,8 @@ float3 Light(float3 LightVec, float3 NormalVec, float3 ViewVec, material Mat)
 	const float PI = 3.141592;
 	const float E = 2.718282;
 	
-	float Diffuse = dot(NormalVec,LightVec);
-	if(Diffuse < 0)	return float3(0,0,0);
+	float Diffuse = max(0.0, dot(NormalVec,LightVec));
+	//if(Diffuse < 0)	return float3(0,0,0);
 	
 	float3 ReflVec = -LightVec + NormalVec*2*dot(LightVec,NormalVec)/dot(NormalVec,NormalVec);
 	float3 Specular = pow(max(0.0f,dot(ViewVec,ReflVec)),Mat.Power);
@@ -204,7 +206,7 @@ float4 PS(PIn In) : SV_TARGET
 	//float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
 	//float3 vPos = mul(float3x2(Screen2WorldU.xyz,Screen2WorldV.xyz), sPos) + Screen2WorldOrigin.xyz;
 	float3 vPos = mul(Screen2World, float4(sPos,0.0,1.0)).xyz;
-	//vPos = Focus;
+	vPos = Focus;
 	float3 View = vPos - In.wPos.xyz;
 	//float3 View = normalize(mul(Screen2World, float4(sPos,0.0,1.0)).xyz - 
 	//						mul(Screen2World, float4(sPos,1.0,1.0)).xyz);
@@ -213,8 +215,9 @@ float4 PS(PIn In) : SV_TARGET
 	float3x3 Tangentspace = float3x3(normalize(In.Tan), //In.Tan,	//
 									 normalize(In.Bin), //In.Bin,	//
 									 normalize(In.Norm)); //In.Norm);	//
-	Normal = normalize(mul(transpose(Tangentspace), Normal)); // matrix inverse?
-	View = normalize(mul(Tangentspace, normalize(View)));
+	Normal = normalize(mul(transpose(Tangentspace), Normal)); // directx row major matrices
+	//View = normalize(mul(Tangentspace, normalize(View)));
+	
 	
 	//Normal = normalize(mul(transpose(Tangentspace), float3(0,0,1)));
 	
@@ -240,6 +243,7 @@ float4 PS(PIn In) : SV_TARGET
 	//Normal.xy *= 0.1; Normal = normalize(Normal);
 	//Normal = float3(0,0,1);
 	//Mat.Reflectivity = 0;
+	//Mat.Reflectivity = float3(1,1,1);
 	
 	//Mat.Power = 100000;
 	
@@ -258,6 +262,8 @@ float4 PS(PIn In) : SV_TARGET
 	
 	float3 Out = Ambient;
 	Out *= (1 - Mat.Reflectivity) * Mat.Albedo + Mat.Reflectivity; // Ambient
+	
+	Out *= 0;
 	
 	//float3 fucku = LightHarmonics(Ambient, Normal, View, Mat, Tangentspace)/ 10.0;
 	//return float4(fucku,1.0);
@@ -303,17 +309,19 @@ float4 PS(PIn In) : SV_TARGET
 	}
 	
 	//importance sampled skybox
-	const int samples = 16;
+	const int samples = 16; // 64; //
 	//Mat.Power = 10;
 	//Mat.Power = 10000.0;
 	//Mat.Power = 1.0;
 	//Mat.Power = 100000.0;
+	
 	float3 sample_sum = float3(0,0,0);
 	for(int s=0; s<samples; ++s)
 	{
 		float xi0 = nrand(In.Tex + float2(0.1,0.0)*(s+1 + Time));
 		float xi1 = nrand(In.Tex + float2(0.1,0.1)*(s+1 + Time));
 		float xi2 = nrand(In.Tex + float2(0.0,0.1)*(s+1 + Time));
+		xi2 = s*(1.0 / float(samples)); // mis with specific modes
 		
 		float pdf = 1.0;
 		//float3 rDir = reflect(-View, Normal);
@@ -342,12 +350,30 @@ float4 PS(PIn In) : SV_TARGET
 	
 	/*
 	float3 refl = reflect(-View, Normal);
-	return Cubemap.SampleLevel(Sampler, refl, 0);
+	//float3 basic_refl = Light(refl, Normal, View, Mat);
+	Out = srgb2lsrgb(Cubemap.SampleLevel(Sampler, refl, 0));
 	*/
 	
 	Out = saturationClip(Out);
 	Out = lsrgb2srgb(Out);
 	Out = saturate(Out);
+	
+	float3 testing = Tangentspace[1] * Mat.Albedo.rbg; // swap blue and green channels 
+	
+	//testing  = In.wPos.xyz;
+	/*
+	if(dot(In.wPos.xyz,In.wPos.xyz) > 2.0)
+		Out = In.wPos.xyz;
+	else
+		Out = testing;
+	*/
+	//Out = float3(frac(In.Tex), 0.0);
+	
+	//Out = SampleTexture(0,In.Tex);
+	//Out = In.Norm;
+	
+	//Out = lerp(Out, testing,1.0);
+	
 	return float4(Out,1.0);
 	//return float4(Out,1.0);
 }
